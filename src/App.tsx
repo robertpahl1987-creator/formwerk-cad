@@ -473,6 +473,42 @@ export function App() {
     void loadImported();
   }, []);
 
+  // Zu groß fürs Druckbett → automatisch auf mehrere Platten teilen (mit Verbindern).
+  // Schaltet der Nutzer das Teilen selbst aus, wird es für dieses Modell nicht erneut erzwungen.
+  const autoSplit = useRef(false);
+  const ourToggle = useRef(false);
+  const dismissedFor = useRef(-1);
+  useEffect(() => {
+    if (!s.split.enabled && autoSplit.current) {
+      if (!ourToggle.current) dismissedFor.current = state.modelVersion;
+      autoSplit.current = false;
+    }
+    ourToggle.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.split.enabled]);
+  useEffect(() => {
+    const b = state.build;
+    if (!b || !state.model || state.building) return;
+    if (!s.split.enabled && !b.fitsBed && !state.model.imports?.length && dismissedFor.current !== state.modelVersion) {
+      const t = b.total;
+      autoSplit.current = true;
+      ourToggle.current = true;
+      dispatch({ type: 'settings', patch: { split: { ...s.split, enabled: true, cuts: [0, 0, 0] } } });
+      const j = s.split.joint === 'duebel' ? 'Dübeln' : s.split.joint === 'kleben' ? 'Klebeflächen' : 'Steckzapfen';
+      dispatch({
+        type: 'toast',
+        kind: 'info',
+        text: `Zu groß fürs Druckbett (${Math.round(t.max[0] - t.min[0])} × ${Math.round(t.max[1] - t.min[1])} × ${Math.round(t.max[2] - t.min[2])} mm) – automatisch geteilt, mit ${j}. Ändern in Schritt 3 „Aufteilen“.`,
+      });
+    } else if (s.split.enabled && autoSplit.current && b.pieces && b.pieces.filter((p) => p.kind === 'segment').length <= 1) {
+      // passt wieder aufs Bett → Teilen wieder aus
+      ourToggle.current = true;
+      dispatch({ type: 'settings', patch: { split: { ...s.split, enabled: false } } });
+      dispatch({ type: 'toast', kind: 'ok', text: 'Passt wieder aufs Druckbett – Aufteilen ausgeschaltet' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.build]);
+
   // Modell bei jeder Änderung neu berechnen (entprellt)
   useEffect(() => {
     if (!state.model) return;

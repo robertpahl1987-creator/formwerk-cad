@@ -125,6 +125,16 @@ for (const id of ['box', 'wallholder', 'angle']) {
     const holes = r.holes.map((h, i) => ({ ...h, id: 10 + i }));
     check(`frei: Setzkasten ${nx}×${ny}×${nz} ${open ? 'offen' : 'geschlossen'} (Fach ${r.cell.join('×')})`, freeToModel([body, ...holes])!, {});
   }
+  // zu großer Setzkasten (wie beim Nutzer: 325 × 251 × 150) → automatisch geteilt mit Zapfen
+  {
+    const big = { ...body, size: [325, 251, 150] as [number, number, number], pos: [0, 0, 75] as [number, number, number] };
+    const r = rasterHoles(big, { nx: 5, ny: 4, nz: 1, wall: 2, floor: 2, open: true, r: 1 });
+    if ('error' in r) throw new Error(r.error);
+    check('frei: großer Setzkasten 325×251×150 automatisch geteilt (steck)', freeToModel([big, ...r.holes.map((h, i) => ({ ...h, id: 100 + i }))])!, {}, undefined, null, {
+      opts: { ...DEFAULT_SPLIT, enabled: true, joint: 'steck' },
+      bed: { size: 256, height: 256 },
+    });
+  }
   // negatives Teil in 3 Stücke teilen
   const hole = newPart(PRESETS.find((p) => p.label === 'Hohlraum')!, 2);
   hole.kind = 'quader';
