@@ -277,7 +277,7 @@ export function localExtent(p: FreePart): V3 {
   switch (p.kind) {
     case 'text': {
       const h = num(e.hoehe, 10);
-      return [Math.max(h, String(e.text ?? '').length * h * 0.75), h * 1.2, num(e.dicke, 2)];
+      return [Math.max(h, String(e.text ?? '').length * h), h * 1.3, num(e.dicke, 2)];
     }
     case 'schraubloch':
       return [Math.max(num(e.d, 4), num(e.k, 0)) + 0.3, Math.max(num(e.d, 4), num(e.k, 0)) + 0.3, num(e.L, 10) + 1];
@@ -331,10 +331,26 @@ function placed(p: FreePart): CadNode {
 export function freeToModel(parts: FreePart[]): ModelDef | null {
   const bodies = parts.filter((p) => !p.hole);
   if (!bodies.length) return null;
-  const holes = parts.filter((p) => p.hole).map(placed);
-  const group = (list: FreePart[]): CadNode => (list.length === 1 ? placed(list[0]) : { type: 'union', children: list.map(placed) });
-  const solid = (list: FreePart[]): CadNode => (holes.length ? { type: 'difference', children: [group(list), ...holes] } : group(list));
+  const holeParts = parts.filter((p) => p.hole);
   const slots = [...new Set(bodies.map((b) => b.slot || 1))].sort((a, b) => a - b);
+  const group = (list: FreePart[]): CadNode => (list.length === 1 ? placed(list[0]) : { type: 'union', children: list.map(placed) });
+  /** Bei mehreren Farben nur die Löcher abziehen, die das Farbteil auch berühren (großzügige Hüllbox).
+   *  Das spart Rechenzeit und vermeidet unnötige Boolesche Schnitte an weit entfernten Teilen. */
+  const holesFor = (list: FreePart[]): CadNode[] => {
+    if (slots.length <= 1) return holeParts.map(placed);
+    const bs = list.map(worldBox);
+    const m = 2;
+    return holeParts
+      .filter((h) => {
+        const hb = worldBox(h);
+        return bs.some((b) => [0, 1, 2].every((k) => hb.min[k] - m < b.max[k] && hb.max[k] + m > b.min[k]));
+      })
+      .map(placed);
+  };
+  const solid = (list: FreePart[]): CadNode => {
+    const hs = holesFor(list);
+    return hs.length ? { type: 'difference', children: [group(list), ...hs] } : group(list);
+  };
   const root: CadNode[] =
     slots.length <= 1
       ? [solid(bodies)]
