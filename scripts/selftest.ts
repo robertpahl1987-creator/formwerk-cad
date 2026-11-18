@@ -119,7 +119,11 @@ check('foto negativform', pm, { ...defaultValues(pm), mode: 1 });
     check('diag P+S+M', freeToModel([P0(), S(), M()])!, {});
     check('diag P+G+S', freeToModel([P0(), G(), S()])!, {});
     check('diag P+G+M', freeToModel([P0(), G(), M()])!, {});
-    check('diag Peckig+G+S+M', freeToModel([P0(0), G(), S(), M()])!, {});
+    const TX = (y: number, z: number, slot: number) => mk('Text', { pos: [0, y, z], slot, e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } });
+    check('diag 2f fern', freeToModel([P0(), TX(60, 0.8, 2), G(), S(), M()])!, {});
+    check('diag 1f auf (4.8)', freeToModel([P0(), TX(6, 4.8, 1), G(), S(), M()])!, {});
+    check('diag 2f auf ohne G', freeToModel([P0(), TX(6, 4.8, 2), S(), M()])!, {});
+    check('diag 2f auf nur M', freeToModel([P0(), TX(6, 4.8, 2), M()])!, {});
   }
   check('frei Scharnier an zwei Platten', freeToModel([
     mk('Scharnier', { pos: [0, 0, 4] }),
