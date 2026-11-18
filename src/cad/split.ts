@@ -108,7 +108,7 @@ export function distToSegs(segs: number[][], x: number, y: number): number {
 /** Zylinder entlang der Achse axis, von s0 bis s1 (Achskoordinate), Mitte (cu, cv). */
 function axisCylinder(axis: number, s0: number, s1: number, cu: number, cv: number, r: number, chamfer = 0): Geom {
   const h = s1 - s0;
-  const seg = Math.max(24, Math.ceil((2 * Math.PI * r) / 0.5 / 4) * 4);
+  const seg = Math.min(160, Math.max(32, Math.ceil((2 * Math.PI * r) / 0.5 / 16) * 16));
   let g: Geom;
   if (chamfer > 0 && h > chamfer * 2) {
     const body = P.cylinder({ radius: r, height: h - chamfer, segments: seg, center: [0, 0, (h - chamfer) / 2] });

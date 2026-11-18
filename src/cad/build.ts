@@ -27,8 +27,11 @@ interface Ctx {
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 /** Segmentzahl aus Radius: ~0,5 mm Kantenlänge, Vielfaches von 4 (symmetrisch). */
 function segs(r: number, fn?: number): number {
-  const n = fn && fn >= 3 ? fn : clamp(Math.round((2 * Math.PI * r) / 0.5), 24, 160);
-  return Math.max(4, Math.ceil(n / 4) * 4);
+  if (fn && fn >= 3) return Math.max(4, Math.ceil(fn / 4) * 4);
+  // In 16er-Stufen: benachbarte Radien (Bohrung + Fase/Senkung) bekommen dieselbe
+  // Teilung → deckungsgleiche Kanten statt hauchdünner Splitter nach dem CSG.
+  const n = (2 * Math.PI * r) / 0.5;
+  return clamp(Math.ceil(n / 16) * 16, 32, 160);
 }
 const v2 = (v: Vec2, s: Scope, w: string): [number, number] => [num(v[0], s, w), num(v[1], s, w)];
 const v3 = (v: Vec3, s: Scope, w: string): [number, number, number] => [num(v[0], s, w), num(v[1], s, w), num(v[2], s, w)];
@@ -127,7 +130,7 @@ function build(n: CadNode, ctx: Ctx): Geom[] {
       const center: [number, number, number] = n.center ? [0, 0, 0] : [size[0] / 2, size[1] / 2, size[2] / 2];
       const r = Math.min(num(n.r, s, 'roundedCube.r'), Math.min(...size) / 2 - 0.001);
       if (r <= 0.01) return [P.cuboid({ size, center })];
-      return [P.roundedCuboid({ size, center, roundRadius: r, segments: clamp(segs(r), 8, 48) })];
+      return [P.roundedCuboid({ size, center, roundRadius: r, segments: clamp(Math.ceil(((2 * Math.PI * r) / 0.6) / 4) * 4, 8, 48) })];
     }
     case 'cylinder': {
       const h = positive(num(n.h, s, 'cylinder.h'), 'Zylinderhöhe');
@@ -307,6 +310,9 @@ function textSolid(text: string, size0: number, h: number, stroke: number | unde
   }
   if (!shapes.length) throw new BuildError('Text ergibt keine Geometrie');
   let g2 = shapes.length === 1 ? shapes[0] : B.union(...shapes);
+  // Minimal aufdicken: Striche, die sich nur in einem Punkt berühren, würden
+  // nach dem Extrudieren nicht-manifolde Kanten erzeugen.
+  g2 = X.offset({ delta: 0.04, corners: 'round', segments: 8 }, g2);
   if (center) g2 = T.translate([-(minX + maxX) / 2, -(minY + maxY) / 2, 0], g2);
   return E.extrudeLinear({ height: h }, g2);
 }
