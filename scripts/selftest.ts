@@ -105,6 +105,12 @@ check('foto negativform', pm, { ...defaultValues(pm), mode: 1 });
     mk('Schraubloch', { pos: [-30, 0, 2], e: { d: 4, k: 8, L: 4 } }),
     mk('Magnetloch', { pos: [30, 0, 1.6] }),
   ])!, {});
+  // DIAG
+  check('diag rund+magnet', freeToModel([mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } }), mk('Magnetloch', { pos: [30, 0, 1.6] })])!, {});
+  check('diag eckig+magnet', freeToModel([mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 0 } }), mk('Magnetloch', { pos: [30, 0, 1.6] })])!, {});
+  check('diag rund+schraube', freeToModel([mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } }), mk('Schraubloch', { pos: [-30, 0, 2], e: { d: 4, k: 8, L: 4 } })])!, {});
+  check('diag rund+text', freeToModel([mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } }), mk('Text', { pos: [0, 6, 4.7], e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } })])!, {});
+  check('diag rund+gravur', freeToModel([mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } }), mk('Text', { hole: true, pos: [0, -10, 3.6], e: { text: 'Robert', hoehe: 6, dicke: 1, strich: 0 } })])!, {});
   check('frei Scharnier an zwei Platten', freeToModel([
     mk('Scharnier', { pos: [0, 0, 4] }),
     mk('Quader', { size: [40, 20, 2.4], pos: [0, -(4 + 0.4 + 15) - 9, 1.2] }),
