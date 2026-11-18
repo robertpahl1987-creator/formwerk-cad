@@ -1,7 +1,7 @@
 import { Component, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
-import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, OptimizePanel, ParamPanel, PrintCheck, SplitPanel } from './components/ModelPanels';
+import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, OptimizePanel, ParamPanel, PrintCheck, SplitPanel, ToleranceCalibration } from './components/ModelPanels';
 import { ContextMenu } from './components/ContextMenu';
 import { AssemblyPanel, PlateBar } from './components/AssemblyPanel';
 import { asmSettings, assembledParts } from './state/assemblyBuild';
@@ -277,6 +277,11 @@ function PanelContent() {
             </div>
           ) : (
             <>
+              {state.model?.templateId === 'toleranztest' && (
+                <div className="px-4 pt-3">
+                  <ToleranceCalibration compact />
+                </div>
+              )}
               <ParamPanel />
               <EditPanel />
             </>

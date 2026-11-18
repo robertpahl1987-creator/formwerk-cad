@@ -758,3 +758,46 @@ export function OptimizePanel() {
     </Section>
   );
 }
+
+// ---------------------------------------------------------------- Toleranz kalibrieren
+export function ToleranceCalibration({ compact }: { compact?: boolean }) {
+  const { state, dispatch } = useStore();
+  const tol = state.settings.tol;
+  const load = () => {
+    const t = TEMPLATES.find((x) => x.id === 'toleranztest');
+    if (!t) return;
+    dispatch({ type: 'setModel', model: structuredClone(t.model) });
+    dispatch({ type: 'showSettings', on: false });
+    dispatch({ type: 'toast', kind: 'ok', text: 'Toleranz-Testdruck geladen – drucken, Stift testen, dann hier die passende Zahl antippen' });
+  };
+  return (
+    <div className="rounded-lg border border-[#30363d] bg-[#0d1117] p-3 space-y-2">
+      <div className="text-[13px] text-slate-200 font-medium">🎯 Drucktoleranz: {String(tol).replace('.', ',')} mm</div>
+      {!compact && (
+        <p className="text-[11.5px] text-slate-400 leading-snug">
+          Bestimmt das Spiel aller Steckverbindungen, Dübel, Deckel und Gewinde. Einmal den Testdruck machen, dann passt alles genau zu deinem Drucker und Filament.
+        </p>
+      )}
+      <p className="text-[11.5px] text-slate-400">Welches Loch passt am besten? (Stift lässt sich mit leichtem Druck stecken und sitzt fest)</p>
+      <div className="grid grid-cols-6 gap-1">
+        {[0.05, 0.1, 0.15, 0.2, 0.25, 0.3].map((v) => (
+          <button
+            key={v}
+            onClick={() => {
+              dispatch({ type: 'settings', patch: { tol: v } });
+              dispatch({ type: 'toast', kind: 'ok', text: `Toleranz ${String(v).replace('.', ',')} mm übernommen – gilt jetzt für alle Passungen` });
+            }}
+            className={cx('h-9 rounded-md border text-[13px] tabular-nums', Math.abs(tol - v) < 1e-6 ? 'border-[#00ae42] bg-[#00ae42]/15 text-white' : 'border-[#30363d] text-slate-300')}
+          >
+            {Math.round(v * 100)}
+          </button>
+        ))}
+      </div>
+      {state.model?.templateId !== 'toleranztest' && (
+        <Button className="w-full h-9 text-[12.5px]" onClick={load}>
+          Testdruck laden
+        </Button>
+      )}
+    </div>
+  );
+}

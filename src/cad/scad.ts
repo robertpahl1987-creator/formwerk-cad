@@ -53,6 +53,8 @@ function node(n: CadNode, ind: string): string {
       return `${ind}linear_extrude(height = ${e(n.h)}, center = ${n.center ? 'true' : 'false'}) {\n${shape(n.shape, ind + '  ')}${ind}}\n`;
     case 'revolve':
       return `${ind}rotate_extrude(angle = ${n.angle !== undefined ? e(n.angle) : '360'}${n.fn !== undefined ? `, $fn = ${e(n.fn)}` : ''}) {\n${shape(n.shape, ind + '  ')}${ind}}\n`;
+    case 'thread':
+      return `${ind}fw_thread(${e(n.d)}, ${e(n.pitch)}, ${e(n.h)}, iso = ${n.iso ? 'true' : 'false'}, chamfer = ${n.chamfer ? 'true' : 'false'}, left = ${n.left ? 'true' : 'false'});\n`;
     case 'import':
       return `${ind}resize(${vec(n.size)}) import("${n.ref}.stl", center = true); // importierte Datei – bitte daneben ablegen\n`;
     case 'teardrop':
@@ -109,6 +111,19 @@ module fw_teardrop(r, h, axis = "x") {
   rotate(axis == "x" ? [90, 0, 90] : axis == "y" ? [90, 0, 0] : [0, 0, 0])
     linear_extrude(height = h, center = true)
       hull() { circle(r = r); translate([0, r * sqrt(2)]) square(0.02, center = true); }
+}
+// Gewinde als verdrehte Extrusion (iso = 60°-Profil, sonst druckoptimiert 45°)
+function fw_thr_r(x, p, iso) = let(c = p/8, ro = iso ? p/4 : p/8, f = (p - c - ro)/2, dp = iso ? 0.5413*p : f)
+  x < c ? 0 : x < c + f ? (x - c)/f*dp : x < c + f + ro ? dp : dp - (x - c - f - ro)/f*dp;
+module fw_thread(d, p, h, iso = false, chamfer = false, left = false) {
+  N = 120;
+  pts = [for (i = [0:N-1]) let(th = 360*i/N, ph = left ? i/N : (N - i)%N/N, rr = d/2 - fw_thr_r(ph*p, p, iso)) [rr*cos(th), rr*sin(th)]];
+  dp = iso ? 0.5413*p : (p - p/8 - (iso ? p/4 : p/8))/2;
+  intersection() {
+    linear_extrude(height = h, twist = (left ? 1 : -1) * 360*h/p, slices = ceil(h/p*32)) polygon(pts);
+    if (chamfer) hull() { cylinder(r = d/2 - dp, h = 0.01); translate([0,0,dp]) cylinder(r = d/2 + 0.01, h = h - 2*dp); translate([0,0,h-0.01]) cylinder(r = d/2 - dp, h = 0.01); }
+    else cylinder(r = d, h = h);
+  }
 }
 `;
 

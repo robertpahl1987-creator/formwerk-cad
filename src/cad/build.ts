@@ -28,6 +28,54 @@ interface Ctx {
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 /** Segmentzahl aus Radius: ~0,5 mm Kantenlänge, Vielfaches von 4 (symmetrisch). */
+/**
+ * Gewinde als verdrehte Extrusion: der Querschnitt ist ein Kreis, dessen Radius dem Gewindeprofil
+ * entlang einer Umdrehung folgt; die Drehung um 360° je Steigung erzeugt die exakte Schraubenlinie.
+ */
+export function threadProfile(p: number, iso: boolean): { depth: number; r: (phi: number) => number } {
+  // Anteile einer Steigung: Spitze (Kamm), Flanke hoch, Grund, Flanke runter
+  const crest = p / 8,
+    root = iso ? p / 4 : p / 8;
+  const depth = iso ? 0.5413 * p : (p - crest - root) / 2; // druckoptimiert: 45°-Flanken
+  const flank = (p - crest - root) / 2;
+  return {
+    depth,
+    r: (phi: number) => {
+      const x = phi * p; // 0..p
+      if (x < crest) return 0;
+      if (x < crest + flank) return ((x - crest) / flank) * depth;
+      if (x < crest + flank + root) return depth;
+      return depth - ((x - crest - flank - root) / flank) * depth;
+    },
+  };
+}
+function threadGeom(d: number, p: number, h: number, iso: boolean, chamfer: boolean, left: boolean): Geom {
+  const { depth, r } = threadProfile(p, iso);
+  const R = d / 2;
+  const N = clamp(Math.round((Math.PI * d) / 0.45 / 8) * 8, 64, 192);
+  const pts: [number, number][] = [];
+  for (let i = 0; i < N; i++) {
+    const th = (2 * Math.PI * i) / N;
+    const phi = (((left ? i / N : 1 - i / N) % 1) + 1) % 1;
+    const rr = R - r(phi);
+    pts.push([rr * Math.cos(th), rr * Math.sin(th)]);
+  }
+  const turns = h / p;
+  let g = E.extrudeLinear({ height: h, twistAngle: (left ? -1 : 1) * 2 * Math.PI * turns, twistSteps: Math.max(8, Math.ceil(turns * 32)) }, G.geom2.fromPoints(pts));
+  if (chamfer) {
+    // 45°-Fase an beiden Enden (leichter Ansatz der Mutter)
+    const c = Math.min(depth, h / 4);
+    const sg = segs(R);
+    const cut = H.hull(
+      T.translate([0, 0, c / 2], P.cylinder({ radius: R - c, height: c, segments: sg })),
+      T.translate([0, 0, h / 2], P.cylinder({ radius: R + 0.01, height: h - 2 * c, segments: sg })),
+      T.translate([0, 0, h - c / 2], P.cylinder({ radius: R - c, height: c, segments: sg })),
+    );
+    g = B.intersect(g, cut);
+  }
+  return g;
+}
+
 function segs(r: number, fn?: number): number {
   if (fn && fn >= 3) return Math.max(4, Math.ceil(fn / 4) * 4);
   // In 16er-Stufen: benachbarte Radien (Bohrung + Fase/Senkung) bekommen dieselbe
@@ -173,6 +221,13 @@ function build(n: CadNode, ctx: Ctx): Geom[] {
       const fn = n.fn !== undefined ? num(n.fn, s) : 96;
       if (angle >= 359.999) return [E.extrudeRotate({ segments: Math.max(8, Math.round(fn)) }, g2)];
       return [E.extrudeRotate({ segments: Math.max(8, Math.round(fn)), angle: angle * DEG }, g2)];
+    }
+    case 'thread': {
+      const d = positive(num(n.d, s, 'thread.d'), 'Gewinde-Durchmesser');
+      const p = positive(num(n.pitch, s, 'thread.pitch'), 'Steigung');
+      const h = positive(num(n.h, s, 'thread.h'), 'Gewindelänge');
+      if (p > d / 2) throw new BuildError('Steigung zu groß für den Durchmesser');
+      return [threadGeom(d, p, h, !!n.iso, !!n.chamfer, !!n.left)];
     }
     case 'teardrop': {
       const r = radius(n, s, 'Tropfenloch-Radius');

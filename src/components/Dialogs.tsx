@@ -6,6 +6,7 @@ import { insideClaude } from '../platform/claude';
 import { APK_URL, isNativeApp } from '../platform/native';
 import { useStore } from '../state/store';
 import { Button, NumberInput, cx } from './ui';
+import { ToleranceCalibration } from './ModelPanels';
 
 function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -108,6 +109,7 @@ export function SettingsDialog() {
       )}
       <section className="space-y-3 pt-2 border-t border-[#21262d]">
         <h3 className="text-[11px] uppercase tracking-wider text-slate-500 pt-2">Drucker</h3>
+        <ToleranceCalibration />
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="text-[13px] text-slate-300">Bett (X/Y)</span>

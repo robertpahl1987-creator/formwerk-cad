@@ -433,6 +433,246 @@ export const TEMPLATES: Template[] = [
       },
     ],
   ),
+  // ------------------------------------------------------------ Gridfinity
+  t(
+    'gridfinity',
+    'Gridfinity-Behälter',
+    '🧱',
+    ['gridfinity', 'grid finity', 'raster-behälter', 'rasterbehälter', 'kiste raster', 'bin'],
+    'Kompatibel mit dem Gridfinity-System (42-mm-Raster, 7-mm-Höheneinheiten): Füße passen in jede Gridfinity-Grundplatte, optional Stapelrand, Magnetlöcher und Fächer.',
+    [
+      cnt('gx', 'Breite (Raster-Einheiten)', 2, 1, 6, { unit: '× 42 mm', role: undefined }),
+      cnt('gy', 'Tiefe (Raster-Einheiten)', 1, 1, 6, { unit: '× 42 mm', role: undefined }),
+      cnt('gz', 'Höhe (Einheiten à 7 mm)', 6, 2, 20, { unit: '× 7 mm', role: undefined }),
+      cnt('cx', 'Fächer in X', 2, 1, 12, { role: undefined }),
+      cnt('cy', 'Fächer in Y', 1, 1, 12, { role: undefined }),
+      num('wall', 'Wandstärke', 1.2, 0.8, 3, 0.1, { role: 'wall' }),
+      flag('lip', 'Stapelrand', true, { hint: 'Behälter lassen sich aufeinander stapeln' }),
+      flag('magnets', 'Magnetlöcher (6 × 2 mm)', false),
+    ],
+    (() => {
+      const slab = (w: string, d: string, r: string, z: string): CadNode => T([0, 0, z], rrect(w, d, r, 0.01));
+      const W = '42*gx - 0.5',
+        D = '42*gy - 0.5',
+        Ht = '7*gz';
+      const foot: CadNode = {
+        type: 'hull',
+        children: [slab('35.6', '35.6', '0.8', '0'), slab('37.2', '37.2', '1.6', '0.79'), slab('37.2', '37.2', '1.6', '2.6'), slab('41.5', '41.5', '3.75', '4.74')],
+      };
+      const perUnit = (...kids: CadNode[]): CadNode => ({
+        type: 'for',
+        var: 'i',
+        from: 0,
+        to: 'gx - 1',
+        children: [{ type: 'for', var: 'j', from: 0, to: 'gy - 1', children: [T(['-(gx-1)*21 + 42*i', '-(gy-1)*21 + 42*j', 0], ...kids)] }],
+      });
+      const fl = '5.95';
+      const cavity: CadNode = {
+        type: 'if',
+        cond: 'lip',
+        then: [
+          {
+            type: 'hull',
+            children: [slab(`${W} - 2*wall`, `${D} - 2*wall`, 'max(3.75 - wall, 0.5)', fl), slab(`${W} - 2*wall`, `${D} - 2*wall`, 'max(3.75 - wall, 0.5)', `${Ht} - 1.6`), slab(`${W} - 5.2`, `${D} - 5.2`, '1.15', `${Ht}`)],
+          },
+          { type: 'hull', children: [slab(`${W} - 5.2`, `${D} - 5.2`, '1.15', `${Ht} - 0.01`), slab(`${W} - 1.4`, `${D} - 1.4`, '3.05', `${Ht} + 4.41`)] },
+        ],
+        else: [T([0, 0, fl], rrect(`${W} - 2*wall`, `${D} - 2*wall`, 'max(3.75 - wall, 0.5)', `${Ht} + 2`))],
+      };
+      const dividers: CadNode[] = [
+        {
+          type: 'for',
+          var: 'k',
+          from: 1,
+          to: 'cx - 1',
+          children: [T([`-(${W})/2 + wall + k*((${W}) - 2*wall)/cx`, 0, `${fl} - 0.01`], { type: 'cube', size: ['1.2', `${D} - wall`, `${Ht} - ${fl} - (lip ? 1.6 : 0) + 0.01`], center: false })],
+        },
+        {
+          type: 'for',
+          var: 'k',
+          from: 1,
+          to: 'cy - 1',
+          children: [T([0, `-(${D})/2 + wall + k*((${D}) - 2*wall)/cy`, `${fl} - 0.01`], { type: 'cube', size: [`${W} - wall`, '1.2', `${Ht} - ${fl} - (lip ? 1.6 : 0) + 0.01`], center: false })],
+        },
+      ];
+      // Trennwände mittig auf die Koordinate setzen (cube mit center:false → um halbe Stärke/Länge versetzen)
+      const centeredDividers = dividers.map((d) => {
+        const f = d as { type: 'for'; children: CadNode[] };
+        const tr = f.children[0] as { type: 'translate'; v: [string, string, string]; children: CadNode[] };
+        const isX = tr.v[0] !== '0';
+        return {
+          ...f,
+          children: [T(isX ? [`${tr.v[0]} - 0.6`, `-(${D} - wall)/2`, tr.v[2]] : [`-(${W} - wall)/2`, `${tr.v[1]} - 0.6`, tr.v[2]], ...tr.children)],
+        } as CadNode;
+      });
+      return [
+        diff(
+          uni(perUnit(foot), T([0, 0, 4.74], rrect(W, D, '3.75', `${Ht} - 4.74 + (lip ? 4.4 : 0)`))),
+          cavity,
+          { type: 'if', cond: 'magnets', then: [perUnit(...[-13, 13].flatMap((x) => [-13, 13].map((y) => T([x, y, -1], { type: 'cylinder', d: '6.5 + 2*tol', h: 3.4 } as CadNode)))) ] },
+        ),
+        ...centeredDividers,
+      ];
+    })(),
+  ),
+  t(
+    'gridfinity_platte',
+    'Gridfinity-Grundplatte',
+    '🟩',
+    ['gridfinity grundplatte', 'gridfinity platte', 'grundplatte', 'baseplate'],
+    'Grundplatte im 42-mm-Gridfinity-Raster – die Behälter rasten darin ein. Größere Flächen aus mehreren Platten legen.',
+    [cnt('gx', 'Breite (Raster-Einheiten)', 4, 1, 6, { unit: '× 42 mm', role: undefined }), cnt('gy', 'Tiefe (Raster-Einheiten)', 3, 1, 6, { unit: '× 42 mm', role: undefined })],
+    (() => {
+      const slab = (w: number, r: number, z: number): CadNode => T([0, 0, z], rrect(w, w, r, 0.01));
+      return [
+        diff(rrect('42*gx', '42*gy', 4, 4.65), {
+          type: 'for',
+          var: 'i',
+          from: 0,
+          to: 'gx - 1',
+          children: [
+            {
+              type: 'for',
+              var: 'j',
+              from: 0,
+              to: 'gy - 1',
+              children: [
+                T(['-(gx-1)*21 + 42*i', '-(gy-1)*21 + 42*j', 0], {
+                  type: 'hull',
+                  children: [slab(36.3, 1.15, -1), slab(36.3, 1.15, 0), slab(37.7, 1.85, 0.7), slab(37.7, 1.85, 2.5), slab(41.6, 3.8, 4.64), slab(41.6, 3.8, 5.7)],
+                }),
+              ],
+            },
+          ],
+        }),
+      ];
+    })(),
+  ),
+  // ------------------------------------------------------------ Toleranztest
+  t(
+    'toleranztest',
+    'Toleranz-Testdruck',
+    '🎯',
+    ['toleranz', 'kalibrier', 'passungstest', 'testdruck', 'passung'],
+    'Einmal drucken: Stift in die Löcher stecken. Die Zahl unter dem Loch, das sich mit leichtem Druck stecken lässt, ist deine Toleranz in Hundertstel mm (z. B. 15 = 0,15 mm) – in den Einstellungen übernehmen.',
+    [num('Dn', 'Nenn-Durchmesser', 10, 4, 20, 0.5)],
+    [
+      diff(
+        T([0, 0, 0], rrect(104, 26, 3, 4)),
+        ...[0.05, 0.1, 0.15, 0.2, 0.25, 0.3].flatMap((tv, i): CadNode[] => [
+          T([-40 + i * 16, 4, 0], { type: 'cylinder', d: `Dn + ${2 * tv}`, h: 20, center: true }),
+          T([-40 + i * 16, -8, 3.4], { type: 'text', text: String(Math.round(tv * 100)), size: 5, h: 2, stroke: 1 }),
+        ]),
+      ),
+      T([66, 0, 0], { type: 'hull', children: [{ type: 'cylinder', d: 'Dn', h: 11.5 }, { type: 'cylinder', d: 'Dn - 1', h: 12 }] }),
+    ],
+  ),
+  // ------------------------------------------------------------ Schnappdeckel
+  t(
+    'schnappbox',
+    'Box mit Schnappdeckel',
+    '🫙',
+    ['schnapp', 'schnappdeckel', 'clip', 'klick', 'einrast', 'rastdeckel'],
+    'Deckel rastet hörbar ein: umlaufende Rastnase am Deckel, passende Nut in der Box – beides mit 45°-Flanken, ohne Stützen druckbar. Deckel wird umgedreht daneben gedruckt.',
+    [
+      num('L', 'Länge', 80, 30, 200, 0.5, { role: 'length' }),
+      num('B', 'Breite', 60, 30, 200, 0.5, { role: 'width' }),
+      num('H', 'Höhe', 40, 15, 200, 0.5, { role: 'height' }),
+      num('wall', 'Wandstärke', 2, 1.2, 5, 0.1, { role: 'wall' }),
+      num('r', 'Eckenradius', 6, 2, 20, 0.5),
+      num('lipH', 'Rand am Deckel', 7, 4, 20, 0.5),
+      num('g', 'Rastnase', 0.5, 0.2, 1.2, 0.05, { hint: 'Größer = fester. 0,4–0,6 mm für PLA.' }),
+    ],
+    (() => {
+      const slab = (w: string, d: string, r: string, z: string): CadNode => T([0, 0, z], rrect(w, d, r, 0.01));
+      const iw = 'L - 2*wall',
+        ib = 'B - 2*wall',
+        ir = 'max(r - wall, 1)';
+      const zc = 'H - lipH/2';
+      const box = diff(
+        rrect('L', 'B', 'r', 'H'),
+        T([0, 0, 'wall'], rrect(iw, ib, ir, 'H')),
+        // Nut (Raute 45°) innen umlaufend
+        { type: 'hull', children: [slab(iw, ib, ir, `${zc} - g - tol`), slab(`${iw} + 2*(g + tol)`, `${ib} + 2*(g + tol)`, `${ir} + g + tol`, zc), slab(iw, ib, ir, `${zc} + g + tol`)] },
+      );
+      const lw = `${iw} - 2*tol`,
+        lb = `${ib} - 2*tol`,
+        lr = `max(${ir} - tol, 0.8)`;
+      const zl = '2 + lipH/2';
+      const lid = diff(
+        uni(
+          rrect('L', 'B', 'r', 2),
+          T([0, 0, 1.99], rrect(lw, lb, lr, 'lipH + 0.01')),
+          { type: 'hull', children: [slab(lw, lb, lr, `${zl} - g`), slab(`${lw} + 2*g`, `${lb} + 2*g`, `${lr} + g`, zl), slab(lw, lb, lr, `${zl} + g`)] },
+        ),
+        T([0, 0, 2], rrect(`${lw} - 3.2`, `${lb} - 3.2`, `max(${lr} - 1.6, 0.5)`, 'lipH + 5')),
+      );
+      return [box, T([0, 'B + 8', 0], lid)];
+    })(),
+  ),
+  // ------------------------------------------------------------ Gewinde
+  t(
+    'schraubdose',
+    'Dose mit Schraubdeckel',
+    '🥫',
+    ['gewinde', 'schraubdeckel', 'schraubdose', 'dose', 'schraubglas', 'drehverschluss', 'behälter rund', 'dose mit deckel'],
+    'Runde Dose mit druckoptimiertem Gewinde (45°-Flanken, ohne Stützen druckbar) und passendem Schraubdeckel daneben.',
+    [
+      num('D', 'Innen-Ø', 50, 15, 200, 0.5, { role: 'width' }),
+      num('H', 'Höhe', 60, 20, 200, 0.5, { role: 'height' }),
+      num('wall', 'Wandstärke', 2, 1.2, 5, 0.1, { role: 'wall' }),
+      num('p', 'Gewinde-Steigung', 3, 1.5, 6, 0.25),
+      num('thl', 'Gewindelänge', 10, 5, 30, 0.5),
+    ],
+    (() => {
+      const dm = 'D + 3.2 + 0.75*p';
+      const Dl = `${dm} + 2*tol + 4.8`;
+      return [
+        diff(
+          uni(
+            { type: 'cylinder', d: Dl, h: 'H - thl + 0.01' },
+            { type: 'cylinder', d: 'D + 3.0', h: 'H' },
+            T([0, 0, 'H - thl + 0.5'], { type: 'thread', d: dm, pitch: 'p', h: 'thl - 0.5', chamfer: true }),
+          ),
+          T([0, 0, 'wall'], { type: 'cylinder', d: 'D', h: 'H' }),
+        ),
+        T([`${Dl} + 8`, 0, 0], diff({ type: 'cylinder', d: Dl, h: 'thl + 2.4' }, T([0, 0, 2.4], { type: 'thread', d: `${dm} + 2*tol`, pitch: 'p', h: 'thl + 1' }), T([0, 0, 'thl + 2.4 - 0.6'], { type: 'cylinder', r1: `(${dm})/2 + tol - 0.75*p*0.5`, r2: `(${dm})/2 + tol + 0.6`, h: 0.61 }))),
+      ];
+    })(),
+  ),
+  t(
+    'schraube',
+    'Schraube + Mutter (metrisch)',
+    '🔧',
+    ['schraube', 'mutter', 'bolzen', 'gewindestange', 'm6', 'm8', 'm10', 'm12', 'sechskant'],
+    'Metrisches ISO-Gewinde (M6–M20) – druckbare Sechskantschraube mit passender Mutter. Ab M8 passen auch gekaufte Muttern/Schrauben.',
+    [
+      {
+        key: 'M',
+        label: 'Gewinde',
+        type: 'select',
+        value: 10,
+        options: [6, 8, 10, 12, 16, 20].map((m) => ({ value: m, label: `M${m}` })),
+      },
+      num('L', 'Schraubenlänge', 30, 8, 150, 1, { role: 'length' }),
+      flag('nut', 'Mutter dazu', true),
+    ],
+    (() => {
+      const pitch = 'M==6 ? 1 : M==8 ? 1.25 : M==10 ? 1.5 : M==12 ? 1.75 : M==16 ? 2 : 2.5';
+      const s = 'M==6 ? 10 : M==8 ? 13 : M==10 ? 16 : M==12 ? 18 : M==16 ? 24 : 30';
+      return [
+        { type: 'cylinder', d: `(${s}) * 1.1547`, h: 'M*0.65', fn: 6 },
+        T([0, 0, 'M*0.65 - 0.01'], { type: 'thread', d: 'M - 2*tol', pitch, h: 'L + 0.01', iso: true, chamfer: true }),
+        {
+          type: 'if',
+          cond: 'nut',
+          then: [
+            T([`(${s}) * 1.2 + 8`, 0, 0], diff({ type: 'cylinder', d: `(${s}) * 1.1547`, h: 'M*0.8', fn: 6 }, T([0, 0, -1], { type: 'thread', d: 'M + 2*tol', pitch, h: 'M*0.8 + 2', iso: true }))),
+          ],
+        },
+      ];
+    })(),
+  ),
 ];
 
 export function getTemplate(id: string): Template | undefined {

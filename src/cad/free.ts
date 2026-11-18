@@ -7,7 +7,7 @@
 import type { CadNode, ModelDef, ModelImport } from './types';
 import { getImported } from '../mesh/importMesh';
 
-export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'hohlraum' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk' | 'import';
+export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'hohlraum' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk' | 'import' | 'gewinde';
 export type V3 = [number, number, number];
 export type FreeValue = number | boolean | string;
 
@@ -126,6 +126,16 @@ export const KINDS: Record<FreeKind, KindDef> = {
     ],
     hint: 'Wird fertig beweglich gedruckt. Verbinde jedes Blatt nur mit einem Teil, sonst ist das Scharnier festgeklebt. Zu fest? Spiel um 0,1 mm erhöhen.',
   },
+  gewinde: {
+    size: false,
+    fields: [
+      { key: 'd', label: 'Außen-Ø', type: 'num', min: 3, max: 200, step: 0.5, unit: 'mm' },
+      { key: 'p', label: 'Steigung', type: 'num', min: 0.5, max: 8, step: 0.25, unit: 'mm' },
+      { key: 'L', label: 'Länge', type: 'num', min: 2, max: 200, step: 0.5, unit: 'mm' },
+      { key: 'iso', label: 'Metrisch (ISO 60°) statt druckoptimiert', type: 'bool' },
+    ],
+    hint: 'Als Körper: Außengewinde (Schraube, Flaschenhals). Als Loch: Innengewinde (Mutter, Deckel) – bekommt automatisch Spiel (Drucktoleranz). Gleiche Steigung und gleichen Ø für beide Teile wählen. Metrisch: M8 = 8 / 1,25, M10 = 10 / 1,5, M12 = 12 / 1,75.',
+  },
   import: {
     size: true,
     fields: [],
@@ -169,6 +179,8 @@ export const PRESETS: Preset[] = [
   { label: 'Scharnier', icon: '🚪', kind: 'scharnier', e: { L: 40, D: 8, W: 15, t: 2.4, n: 5, c: 0.4 } },
   { label: 'Kugelgelenk', icon: '🦴', kind: 'kugelgelenk', e: { Dk: 12, stiel: 15, w: 2, c: 0.35 } },
   { label: 'Zapfen', icon: '▮', kind: 'zylinder', size: [8, 8, 10], e: { oben: 100, seg: 0 } },
+  { label: 'Gewinde', icon: '🌀', kind: 'gewinde', e: { d: 10, p: 1.5, L: 20, iso: true } },
+  { label: 'Gewindeloch', icon: '⊚', kind: 'gewinde', e: { d: 10, p: 1.5, L: 20, iso: true }, hole: true },
 ];
 
 // ------------------------------------------------------------ Hilfen
@@ -302,6 +314,11 @@ export function partShape(p: FreePart): CadNode {
       return ballJoint(e);
     case 'import':
       return { type: 'import', ref: String(e.ref ?? ''), size: [r3(sx), r3(sy), r3(sz)] };
+    case 'gewinde': {
+      const L = num(e.L, 20);
+      const d = num(e.d, 10);
+      return tr([0, 0, -L / 2], [{ type: 'thread', d: p.hole ? `${r3(d)} + 2*tol` : r3(d), pitch: r3(num(e.p, 1.5)), h: r3(L + (p.hole ? 2 * HOLE_EPS : 0)), iso: !!e.iso, chamfer: !p.hole }]);
+    }
   }
 }
 
@@ -370,6 +387,8 @@ export function localExtent(p: FreePart): V3 {
       const R = num(e.D, 8) / 2;
       return [num(e.L, 40), 2 * (R + num(e.c, 0.4) + num(e.W, 15)), 2 * R];
     }
+    case 'gewinde':
+      return [num(e.d, 10), num(e.d, 10), num(e.L, 20)];
     case 'kugelgelenk': {
       const R = num(e.Dk, 12) / 2,
         Ro = R + num(e.c, 0.35) + num(e.w, 2);
