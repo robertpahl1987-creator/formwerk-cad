@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toScad } from '../cad/scad';
 import type { JointType } from '../cad/split';
 import { TEMPLATES } from '../cad/templates';
@@ -47,28 +47,33 @@ export function Library() {
 }
 
 // ---------------------------------------------------------------- Löschen
-/** Objekt entfernen (zweimal tippen); mit ↶ wiederherstellbar. */
+/** Objekt entfernen – mit Rückfrage, danach mit ↶ wiederherstellbar. */
 function DeleteButton() {
   const { dispatch } = useStore();
   const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 3000);
-    return () => clearTimeout(t);
-  }, [armed]);
+  if (!armed)
+    return (
+      <Button variant="subtle" className="h-8 px-2 text-[12px] text-slate-400 hover:text-red-300 shrink-0" onClick={() => setArmed(true)}>
+        🗑 Löschen
+      </Button>
+    );
   return (
-    <button
-      title="Objekt löschen"
-      className={cx('text-[11px] px-1.5 rounded', armed ? 'bg-red-500/20 text-red-300' : 'text-slate-400 hover:text-red-300')}
-      onClick={() => {
-        if (!armed) return setArmed(true);
-        setArmed(false);
-        dispatch({ type: 'clearModel' });
-        dispatch({ type: 'toast', kind: 'info', text: 'Objekt gelöscht – mit ↶ Wiederherstellen holst du es zurück' });
-      }}
-    >
-      {armed ? 'Sicher? Nochmal tippen' : '🗑 Löschen'}
-    </button>
+    <span className="flex gap-1.5 shrink-0">
+      <Button
+        variant="danger"
+        className="h-8 px-2.5 text-[12px]"
+        onClick={() => {
+          setArmed(false);
+          dispatch({ type: 'clearModel' });
+          dispatch({ type: 'toast', kind: 'info', text: 'Objekt gelöscht – mit „↶ Wiederherstellen“ holst du es zurück' });
+        }}
+      >
+        Ja, löschen
+      </Button>
+      <Button variant="ghost" className="h-8 px-2.5 text-[12px]" onClick={() => setArmed(false)}>
+        Abbrechen
+      </Button>
+    </span>
   );
 }
 
@@ -114,13 +119,15 @@ export function ParamPanel() {
           <button className="text-[11px] text-slate-400 hover:text-white px-1.5" onClick={() => dispatch({ type: 'resetParams' })}>
             Zurücksetzen
           </button>
-          <DeleteButton />
         </span>
       }
     >
-      <div>
-        <div className="text-[15px] font-semibold text-white">{m.name}</div>
-        {m.description && <p className="text-[12px] text-slate-400 mt-0.5">{m.description}</p>}
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="text-[15px] font-semibold text-white">{m.name}</div>
+          {m.description && <p className="text-[12px] text-slate-400 mt-0.5">{m.description}</p>}
+        </div>
+        <DeleteButton />
       </div>
       {[...groups].map(([g, ps]) => (
         <div key={g} className="space-y-3">
