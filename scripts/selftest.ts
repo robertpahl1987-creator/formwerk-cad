@@ -109,6 +109,15 @@ check('foto negativform', pm, { ...defaultValues(pm), mode: 1 });
     mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } }),
     mk('Text', { pos: [0, 6, 4.6], e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } }),
   ])!, {});
+  // DIAG
+  {
+    const P0 = (slot: number) => mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 }, slot });
+    const TX = (y: number, slot: number) => mk('Text', { pos: [0, y, 4.8], slot, e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } });
+    const M = () => mk('Magnetloch', { pos: [30, 0, 1.6] });
+    check('diag Text zuerst (Platte slot2)', freeToModel([P0(2), TX(6, 1), M()])!, {});
+    check('diag Text fern ohne Loch-Überlappung', freeToModel([P0(1), TX(80, 2), M()])!, {});
+    check('diag Text slot2, Loch weit weg von allem', freeToModel([P0(1), TX(6, 2), mk('Magnetloch', { pos: [200, 0, 1.6] })])!, {});
+  }
   check('frei Scharnier an zwei Platten', freeToModel([
     mk('Scharnier', { pos: [0, 0, 4] }),
     mk('Quader', { size: [40, 20, 2.4], pos: [0, -(4 + 0.4 + 15) - 9, 1.2] }),
