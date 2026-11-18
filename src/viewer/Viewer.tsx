@@ -246,7 +246,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     let longTimer: ReturnType<typeof setTimeout> | null = null;
     let longFired = false;
     let rightDown: { x: number; y: number } | null = null;
-    const el = renderer.domElement;
+    const cv = renderer.domElement;
     const onDown = (e: PointerEvent) => {
       if (e.button === 2) rightDown = { x: e.clientX, y: e.clientY };
       down = { x: e.clientX, y: e.clientY, t: performance.now(), touch: e.pointerType === 'touch' };
@@ -286,10 +286,10 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       const h = hit(e.clientX, e.clientY);
       live.current.onMenu(h.id, e.clientX, e.clientY, h.at);
     };
-    el.addEventListener('pointerdown', onDown);
-    el.addEventListener('pointermove', onMove);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('contextmenu', onCtx);
+    cv.addEventListener('pointerdown', onDown);
+    cv.addEventListener('pointermove', onMove);
+    cv.addEventListener('pointerup', onUp);
+    cv.addEventListener('contextmenu', onCtx);
     ctx.current = c;
     const resize = () => {
       const w = el.clientWidth || 1,
@@ -310,10 +310,10 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     };
     loop();
     return () => {
-      el.removeEventListener('pointerdown', onDown);
-      el.removeEventListener('pointermove', onMove);
-      el.removeEventListener('pointerup', onUp);
-      el.removeEventListener('contextmenu', onCtx);
+      cv.removeEventListener('pointerdown', onDown);
+      cv.removeEventListener('pointermove', onMove);
+      cv.removeEventListener('pointerup', onUp);
+      cv.removeEventListener('contextmenu', onCtx);
       cancelAnimationFrame(c.raf);
       ro.disconnect();
       controls.dispose();
