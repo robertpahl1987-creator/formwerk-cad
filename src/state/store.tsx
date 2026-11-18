@@ -6,7 +6,7 @@ import type { BuildResult } from './pipeline';
 import { DEFAULT_SPLIT, type SplitOptions } from '../cad/split';
 import { PROFILES, type PrintProfile } from '../mesh/mesh';
 
-export type Mode = 'text' | 'photo' | 'library';
+export type Mode = 'text' | 'photo' | 'library' | 'free';
 
 export interface Settings {
   ai: AiSettings;
@@ -104,6 +104,8 @@ function loadSettings(): Settings {
 export type Action =
   | { type: 'mode'; mode: Mode }
   | { type: 'setModel'; model: ModelDef; values?: Record<string, Value> }
+  /** Frei bauen: Modell ersetzen, ohne Kamera neu auszurichten und ohne Verlaufseintrag pro Regler-Bewegung. */
+  | { type: 'freeModel'; model: ModelDef }
   | { type: 'param'; key: string; value: Value }
   | { type: 'resetParams' }
   | { type: 'orientation'; o: Orientation }
@@ -136,6 +138,23 @@ function reducer(s: State, a: Action): State {
         view: { ...s.view, plate: -1 },
         history,
         modelVersion: s.modelVersion + 1,
+      };
+    }
+    case 'freeModel': {
+      const fresh = s.model?.templateId !== 'frei';
+      return {
+        ...s,
+        model: a.model,
+        values: {},
+        buildError: null,
+        ...(fresh
+          ? {
+              orientation: { rx: 0, ry: 0 },
+              view: { ...s.view, plate: -1 },
+              history: s.model ? [...s.history.slice(-19), { model: s.model, values: s.values }] : s.history,
+              modelVersion: s.modelVersion + 1,
+            }
+          : {}),
       };
     }
     case 'param':

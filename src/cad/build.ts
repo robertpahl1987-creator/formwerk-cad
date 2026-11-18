@@ -394,8 +394,15 @@ export function buildParts(
       .filter((p) => p.geom) as { slot: number; name: string; geom: Geom }[];
     if (!parts.length) throw new BuildError('Das Modell ist leer');
     // Überschneidungen auflösen: spätere Teile gewinnen (Einlagen, Beschriftungen)
+    // Nur Teile abziehen, die wirklich in dieses Teil hineinragen. Nur aufliegende Teile
+    // (z. B. Schrift auf der Platte) würden sonst deckungsgleiche Flächen schneiden und offene Kanten erzeugen.
     for (let i = 0; i < parts.length - 1; i++) {
-      const later = unionAll(parts.slice(i + 1).map((p) => p.geom));
+      const mine = bbox([parts[i].geom]);
+      const overlapping = parts.slice(i + 1).filter((p) => {
+        const b = bbox([p.geom]);
+        return [0, 1, 2].every((k) => Math.min(mine.max[k], b.max[k]) - Math.max(mine.min[k], b.min[k]) > 1e-3);
+      });
+      const later = unionAll(overlapping.map((p) => p.geom));
       if (later) parts[i].geom = B.subtract(parts[i].geom, later);
     }
     // Ausrichtung

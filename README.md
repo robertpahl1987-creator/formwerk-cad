@@ -33,6 +33,7 @@ Dadurch ist jedes Ergebnis geschlossen, und alle Maße bleiben exakt und nachtr�
 |---|---|
 | Text → CAD | Freitext + Pflichtmaße (Länge, Breite, Höhe, Wand, Loch-Ø, Anzahl) + Drucktoleranz (Standard 0,2 mm) |
 | Foto → CAD | Kamera/Upload, **Referenzlinie** (2 Punkte + mm) oder **4-Punkt-Perspektiventzerrung** (A4, Kreditkarte, eigenes Rechteck), lokale Konturerkennung inkl. Innenlöcher, Extrusion oder Negativform; optional Vision-KI |
+| Frei bauen | Baukasten: Quader (abgerundet), Zylinder, Kegel, Kugel, Halbkugel, Rohr, Keil, Sechskant, Text (Systemschriften, mehrzeilig, erhaben oder graviert), Loch, Magnetloch, Schraubloch mit Senkung, **Scharnier** und **Kugelgelenk** (beweglich in einem Stück). Jedes Teil als Körper oder Loch, Größe/Position/Drehung per Regler, Farb-Slot je Teil, „Passendes Loch“ mit Drucktoleranz, „Auf Teil setzen“, Rückgängig, Projekt speichern/laden |
 | Vorlagen (offline) | Box mit Deckel, Kabelkanal, Werkzeug-Wandhalter, Distanzhülse, Lochplatte, Wandhaken, L-Winkel, Organizer, Namensschild (zweifarbig) |
 | 3D-Viewer | 256 × 256 mm Druckbett-Raster, Bemaßungspfeile X/Y/Z, X-Ray, Schnittansicht (X/Y/Z), Überhänge rot, Touch-Gesten |
 | Print-Check | Manifold-Status, Bettgröße, Gewicht, Filamentlänge, Druckzeit, Überhänge > 45° mit „Lage optimieren“ und „Fasen hinzufügen“ |
