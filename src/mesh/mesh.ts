@@ -475,3 +475,51 @@ export function mergeMeshes(ms: Mesh[]): Mesh {
   }
   return { pos, tri };
 }
+
+/**
+ * Mehrteilige Modelle: Waagerechte Unterseiten, die direkt auf der Oberseite
+ * eines anderen Teils aufliegen (z. B. Schrift auf Schild), sind gestützt und
+ * zählen nicht als Überhang.
+ */
+export function suppressSupportedOverhangs(parts: { mesh: Mesh; stats: MeshStats }[]): void {
+  if (parts.length < 2) return;
+  const ups = new Map<number, number[][]>(); // z (0,01 mm) → Dreiecke [ax,ay,bx,by,cx,cy, teil]
+  parts.forEach((p, pi) => {
+    const { pos, tri } = p.mesh;
+    for (let t = 0; t < tri.length; t += 3) {
+      const a = 3 * tri[t], b = 3 * tri[t + 1], c = 3 * tri[t + 2];
+      const nz = (pos[b] - pos[a]) * (pos[c + 1] - pos[a + 1]) - (pos[b + 1] - pos[a + 1]) * (pos[c] - pos[a]);
+      if (nz <= 0) continue;
+      if (Math.abs(pos[a + 2] - pos[b + 2]) > 1e-4 || Math.abs(pos[a + 2] - pos[c + 2]) > 1e-4) continue;
+      const k = Math.round(pos[a + 2] * 100);
+      if (!ups.has(k)) ups.set(k, []);
+      ups.get(k)!.push([pos[a], pos[a + 1], pos[b], pos[b + 1], pos[c], pos[c + 1], pi]);
+    }
+  });
+  const inTri = (x: number, y: number, q: number[]) => {
+    const d1 = (x - q[2]) * (q[1] - q[3]) - (q[0] - q[2]) * (y - q[3]);
+    const d2 = (x - q[4]) * (q[3] - q[5]) - (q[2] - q[4]) * (y - q[5]);
+    const d3 = (x - q[0]) * (q[5] - q[1]) - (q[4] - q[0]) * (y - q[1]);
+    const neg = d1 < -1e-9 || d2 < -1e-9 || d3 < -1e-9;
+    const pos = d1 > 1e-9 || d2 > 1e-9 || d3 > 1e-9;
+    return !(neg && pos);
+  };
+  parts.forEach((p, pi) => {
+    const { pos, tri } = p.mesh;
+    const f = p.stats.overhangFlags;
+    for (let t = 0, i = 0; t < tri.length; t += 3, i++) {
+      if (!f[i]) continue;
+      const a = 3 * tri[t], b = 3 * tri[t + 1], c = 3 * tri[t + 2];
+      if (Math.abs(pos[a + 2] - pos[b + 2]) > 1e-4 || Math.abs(pos[a + 2] - pos[c + 2]) > 1e-4) continue;
+      const cand = ups.get(Math.round(pos[a + 2] * 100));
+      if (!cand) continue;
+      const cx = (pos[a] + pos[b] + pos[c]) / 3, cy = (pos[a + 1] + pos[b + 1] + pos[c + 1]) / 3;
+      if (cand.some((q) => q[6] !== pi && inTri(cx, cy, q))) {
+        f[i] = 0;
+        const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1];
+        p.stats.overhangArea -= Math.abs(ux * vy - uy * vx) / 2;
+      }
+    }
+    p.stats.overhangArea = Math.max(0, p.stats.overhangArea);
+  });
+}

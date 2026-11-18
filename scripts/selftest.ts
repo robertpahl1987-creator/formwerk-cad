@@ -8,7 +8,7 @@ import { DEFAULT_SPLIT, type JointType } from '../src/cad/split';
 import { TEMPLATES } from '../src/cad/templates';
 import { defaultValues } from '../src/cad/validate';
 import type { ModelDef, Value } from '../src/cad/types';
-import { analyzeMesh, meshFromPolygons } from '../src/mesh/mesh';
+import { analyzeMesh, meshFromPolygons, suppressSupportedOverhangs } from '../src/mesh/mesh';
 import { photoModel } from '../src/photo/photoModel';
 
 let fails = 0;
@@ -42,6 +42,16 @@ function check(label: string, model: ModelDef, values: Record<string, Value>, op
         }
         console.log(`${okk ? '✓' : '✗'} ${label} › ${g.label} › ${p.name} (Slot ${p.slot}): ${s.triangles} Dreiecke, ${s.volume.toFixed(1)} mm³, offen ${s.openEdges}, nicht-manifold ${s.nonManifoldEdges}`);
       }
+    if (!out.pieces && out.parts.length > 1) {
+      const ps = out.parts.map((p) => {
+        const m = meshFromPolygons(p.polys);
+        return { mesh: m, stats: analyzeMesh(m) };
+      });
+      const before = ps.reduce((a, p) => a + p.stats.overhangArea, 0);
+      suppressSupportedOverhangs(ps);
+      const after = ps.reduce((a, p) => a + p.stats.overhangArea, 0);
+      console.log(`   Überhänge mehrteilig: ${(before / 100).toFixed(2)} → ${(after / 100).toFixed(2)} cm² (aufliegende Flächen ausgenommen)`);
+    }
     if (out.splitReport) console.log(`   Aufteilung: ${out.splitReport.counts.join('×')}, ${out.splitReport.joints} Verbinder ${out.splitReport.warnings.join(' | ')}`);
     console.log(`   (${Date.now() - t0} ms)`);
   } catch (e) {

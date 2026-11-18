@@ -12,6 +12,7 @@ import {
   type MeshStats,
   type PrintEstimate,
   type PrintProfile,
+  suppressSupportedOverhangs,
 } from '../mesh/mesh';
 
 export interface PartResult {
@@ -131,6 +132,8 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
 
   const parts: PartResult[] = out.parts.map((p) => mk(p.slot, p.name, meshFromPolygons(p.polys)));
   const total = analyzeMesh(mergeMeshes(parts.map((p) => p.mesh)), s.overhangDeg);
+  suppressSupportedOverhangs(parts);
+  total.overhangArea = parts.reduce((a, p) => a + p.stats.overhangArea, 0);
   total.manifold = parts.every((p) => p.stats.manifold);
   total.openEdges = parts.reduce((a, p) => a + p.stats.openEdges, 0);
   total.nonManifoldEdges = parts.reduce((a, p) => a + p.stats.nonManifoldEdges, 0);
@@ -170,6 +173,8 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
       const b = bounds(rotated);
       const d: [number, number, number] = [-(b.min[0] + b.max[0]) / 2, -(b.min[1] + b.max[1]) / 2, -b.min[2]];
       const local = rotated.map((m, i) => mk(assembled[i].slot, assembled[i].name, translateMesh(m, d)));
+      suppressSupportedOverhangs(assembled);
+      suppressSupportedOverhangs(local);
       return {
         label: pc.label,
         kind: pc.kind,
