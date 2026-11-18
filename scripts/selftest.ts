@@ -75,7 +75,7 @@ function check(
     console.log(`   (${Date.now() - t0} ms)`);
   } catch (e) {
     fails++;
-    console.log(`✗ ${label}: FEHLER ${(e as Error).message}`);
+    console.log(`✗ ${label}: FEHLER ${(e as Error).message} ${((e as Error).stack ?? '').split('\n').slice(1, 5).join(' | ')}`);
   }
 }
 

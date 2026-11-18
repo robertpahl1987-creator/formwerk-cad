@@ -662,7 +662,7 @@ export const TEMPLATES: Template[] = [
       const s = 'M==6 ? 10 : M==8 ? 13 : M==10 ? 16 : M==12 ? 18 : M==16 ? 24 : 30';
       return [
         { type: 'cylinder', d: `(${s}) * 1.1547`, h: 'M*0.65', fn: 6 },
-        T([0, 0, 'M*0.65 - 0.01'], { type: 'thread', d: 'M - 2*tol', pitch, h: 'L + 0.01', iso: true, chamfer: true }),
+        T([0, 0, 'M*0.65 - 0.6'], { type: 'thread', d: 'M - 2*tol', pitch, h: 'L + 0.6', iso: true, chamfer: true }),
         {
           type: 'if',
           cond: 'nut',

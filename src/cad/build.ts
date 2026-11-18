@@ -50,30 +50,46 @@ export function threadProfile(p: number, iso: boolean): { depth: number; r: (phi
   };
 }
 function threadGeom(d: number, p: number, h: number, iso: boolean, chamfer: boolean, left: boolean): Geom {
+  // Direkt als geschlossenes Netz erzeugt (Zylinder-Raster + Deckel) – keine Booleschen Operationen nötig,
+  // dadurch garantiert wasserdicht. Die Fase ist in die Radiusfunktion eingebaut.
   const { depth, r } = threadProfile(p, iso);
   const R = d / 2;
-  const N = clamp(Math.round((Math.PI * d) / 0.45 / 8) * 8, 64, 192);
-  const pts: [number, number][] = [];
+  const N = clamp(Math.round((Math.PI * d) / 0.5 / 8) * 8, 48, 160);
+  const rows = Math.max(2, Math.ceil(h / (p / 12)));
+  const c = chamfer ? Math.min(depth, h / 4) : 0;
+  const rad = (th: number, z: number) => {
+    const phi = ((((z / p) + (left ? 1 : -1) * (th / (2 * Math.PI))) % 1) + 1) % 1;
+    let rr = R - r(phi);
+    if (c > 0) rr = Math.max(R - depth, Math.min(rr, R - c + Math.min(z, h - z)));
+    return rr;
+  };
+  const P3: number[][][] = [];
+  for (let j = 0; j <= rows; j++) {
+    const z = (h * j) / rows;
+    const ring: number[][] = [];
+    for (let i = 0; i < N; i++) {
+      const th = (2 * Math.PI * i) / N;
+      const rr = rad(th, z);
+      ring.push([rr * Math.cos(th), rr * Math.sin(th), z]);
+    }
+    P3.push(ring);
+  }
+  const polys: number[][][] = [];
+  for (let j = 0; j < rows; j++)
+    for (let i = 0; i < N; i++) {
+      const a = P3[j][i],
+        b2 = P3[j][(i + 1) % N],
+        c2 = P3[j + 1][(i + 1) % N],
+        d2 = P3[j + 1][i];
+      polys.push([a, b2, c2], [a, c2, d2]);
+    }
+  const bc = [0, 0, 0],
+    tc = [0, 0, h];
   for (let i = 0; i < N; i++) {
-    const th = (2 * Math.PI * i) / N;
-    const phi = (((left ? i / N : 1 - i / N) % 1) + 1) % 1;
-    const rr = R - r(phi);
-    pts.push([rr * Math.cos(th), rr * Math.sin(th)]);
+    polys.push([bc, P3[0][(i + 1) % N], P3[0][i]]);
+    polys.push([tc, P3[rows][i], P3[rows][(i + 1) % N]]);
   }
-  const turns = h / p;
-  let g = E.extrudeLinear({ height: h, twistAngle: (left ? -1 : 1) * 2 * Math.PI * turns, twistSteps: Math.max(8, Math.ceil(turns * 32)) }, G.geom2.fromPoints(pts));
-  if (chamfer) {
-    // 45°-Fase an beiden Enden (leichter Ansatz der Mutter)
-    const c = Math.min(depth, h / 4);
-    const sg = segs(R);
-    const cut = H.hull(
-      T.translate([0, 0, c / 2], P.cylinder({ radius: R - c, height: c, segments: sg })),
-      T.translate([0, 0, h / 2], P.cylinder({ radius: R + 0.01, height: h - 2 * c, segments: sg })),
-      T.translate([0, 0, h - c / 2], P.cylinder({ radius: R - c, height: c, segments: sg })),
-    );
-    g = B.intersect(g, cut);
-  }
-  return g;
+  return G.geom3.fromPoints(polys);
 }
 
 function segs(r: number, fn?: number): number {
