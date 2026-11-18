@@ -261,6 +261,34 @@ export function MaterialPanel() {
           </label>
         ))}
       </div>
+      <div className="rounded-lg border border-[#21262d] p-3 space-y-3">
+        <Toggle
+          label="Hohlraum einbauen"
+          hint="Echter, geschlossener Hohlraum im Inneren – spart Material und Gewicht"
+          checked={state.settings.hollow.enabled}
+          onChange={(v) => dispatch({ type: 'settings', patch: { hollow: { ...state.settings.hollow, enabled: v } } })}
+        />
+        {state.settings.hollow.enabled && (
+          <>
+            <SliderRow
+              label="Wandstärke rundum"
+              value={state.settings.hollow.wall}
+              min={0.8}
+              max={15}
+              step={0.2}
+              unit="mm"
+              onChange={(v) => dispatch({ type: 'settings', patch: { hollow: { ...state.settings.hollow, wall: v } } })}
+            />
+            <Toggle
+              label="Selbsttragende Decke (45°)"
+              hint="Dach-Form innen – druckt ohne Stützmaterial im Hohlraum"
+              checked={state.settings.hollow.roof}
+              onChange={(v) => dispatch({ type: 'settings', patch: { hollow: { ...state.settings.hollow, roof: v } } })}
+            />
+            <p className="text-[11px] text-slate-500">Zu dünne Stellen bleiben automatisch massiv. Mit „✂ Schnitt“ in der Vorschau siehst du den Hohlraum. Gezielte Hohlräume kannst du unter „Frei bauen“ als Bauteil „Hohlraum“ setzen.</p>
+          </>
+        )}
+      </div>
       <p className="text-[11px] text-slate-500 leading-relaxed">
         Das Innere wird automatisch als Hohlraum mit Stützstruktur gedruckt: Nur Wände, Decken und Böden sind massiv, der Rest wird mit der gewählten Füllung
         ausgesteift. Diese Werte stehen im 3MF und werden von Bambu Studio / OrcaSlicer übernommen. Für echte, konstruktive Hohlräume (z. B. „hohl mit 2 mm Wand“)

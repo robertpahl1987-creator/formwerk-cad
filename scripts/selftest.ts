@@ -14,10 +14,19 @@ import { freeToModel, newPart, PRESETS, type FreePart } from '../src/cad/free';
 
 let fails = 0;
 let checks = 0;
-function check(label: string, model: ModelDef, values: Record<string, Value>, opts: Parameters<typeof buildParts>[3] = { rx: 0, ry: 0 }, zones?: Parameters<typeof buildParts>[4], split?: Parameters<typeof buildParts>[5], fase = true) {
+function check(
+  label: string,
+  model: ModelDef,
+  values: Record<string, Value>,
+  opts: Parameters<typeof buildParts>[3] = { rx: 0, ry: 0 },
+  zones?: Parameters<typeof buildParts>[4],
+  split?: Parameters<typeof buildParts>[5],
+  fase = true,
+  hollow?: Parameters<typeof buildParts>[6],
+) {
   const t0 = Date.now();
   try {
-    const out = buildParts(model, values, { tol: 0.2, fase }, opts, zones, split);
+    const out = buildParts(model, values, { tol: 0.2, fase }, opts, zones, split, hollow);
     const groups = out.pieces ? out.pieces.map((p) => ({ label: p.label, parts: p.parts })) : [{ label: 'Modell', parts: out.parts }];
     for (const g of groups)
       for (const p of g.parts) {
@@ -80,6 +89,23 @@ check('lochplatte 240×120×10 geteilt (steck)', plate, { ...defaultValues(plate
   opts: { ...DEFAULT_SPLIT, enabled: true, joint: 'steck', pinD: 5, depth: 6 },
   bed: { size: 180, height: 180 },
 });
+// Hohlraum automatisch
+for (const id of ['box', 'wallholder', 'angle']) {
+  const tm = TEMPLATES.find((t) => t.id === id)!.model;
+  const big = id === 'box' ? { ...defaultValues(tm), L: 80, B: 60, H: 40, wall: 12, floor: 12 } : defaultValues(tm);
+  check(`${id} mit Hohlraum`, tm, big, undefined, null, undefined, true, { enabled: true, wall: 2.4, roof: true });
+}
+{
+  const { freeToModel, newPart, PRESETS } = await import('../src/cad/free');
+  const block = newPart(PRESETS.find((p) => p.label === 'Quader')!, 1);
+  block.size = [60, 40, 30];
+  for (const dach of ['giebel', 'rund', 'flach']) {
+    const cav = newPart(PRESETS.find((p) => p.label === 'Hohlraum')!, 2);
+    cav.e.dach = dach;
+    const fm = freeToModel([block, cav])!;
+    check(`frei: Quader mit Hohlraum (${dach})`, fm, {});
+  }
+}
 const pm = photoModel(
   [[-20, -10], [20, -10], [25, 0], [20, 10], [-20, 10], [-25, 0]],
   [[[-5, -3], [5, -3], [5, 3], [-5, 3]]],

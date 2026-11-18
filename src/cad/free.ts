@@ -6,7 +6,7 @@
  */
 import type { CadNode, ModelDef } from './types';
 
-export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk';
+export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'hohlraum' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk';
 export type V3 = [number, number, number];
 export type FreeValue = number | boolean | string;
 
@@ -64,6 +64,22 @@ export const KINDS: Record<FreeKind, KindDef> = {
   kugel: { size: true, fields: [{ key: 'halb', label: 'Halbkugel', type: 'bool' }] },
   rohr: { size: true, fields: [{ key: 'wand', label: 'Wandstärke', type: 'num', min: 0.4, max: 50, step: 0.2, unit: 'mm' }] },
   keil: { size: true, fields: [] },
+  hohlraum: {
+    size: true,
+    fields: [
+      {
+        key: 'dach',
+        label: 'Decke',
+        type: 'select',
+        options: [
+          { value: 'giebel', label: '45°-Satteldach (druckt ohne Stützen)' },
+          { value: 'rund', label: 'Tropfenform (druckt ohne Stützen)' },
+          { value: 'flach', label: 'Flach (braucht Stützmaterial)' },
+        ],
+      },
+    ],
+    hint: 'Ein verborgener Hohlraum im Inneren: spart Material oder dient als Versteck/Kanal. Komplett im Körper platzieren, damit er geschlossen bleibt. Die Decke ist so geformt, dass sie ohne Stützen druckbar ist.',
+  },
   text: {
     size: false,
     fields: [
@@ -139,6 +155,7 @@ export const PRESETS: Preset[] = [
   { label: 'Sechskant', icon: '⬡', kind: 'zylinder', size: [10, 10, 5], e: { oben: 100, seg: 6 } },
   { label: 'Text', icon: 'T', kind: 'text', e: { text: 'Hallo', font: 'sans', fett: true, hoehe: 10, dicke: 2, strich: 0 } },
   { label: 'Loch', icon: '⊖', kind: 'zylinder', size: [5, 5, 30], e: { oben: 100, seg: 0 }, hole: true },
+  { label: 'Hohlraum', icon: '⬚', kind: 'hohlraum', size: [30, 20, 15], e: { dach: 'giebel' }, hole: true },
   { label: 'Magnetloch', icon: '🧲', kind: 'zylinder', size: [6.3, 6.3, 3.2], e: { oben: 100, seg: 0 }, hole: true },
   { label: 'Schraubloch', icon: '🔩', kind: 'schraubloch', e: { d: 4, k: 8, L: 10 }, hole: true },
   { label: 'Scharnier', icon: '🚪', kind: 'scharnier', e: { L: 40, D: 8, W: 15, t: 2.4, n: 5, c: 0.4 } },
@@ -207,6 +224,29 @@ export function partShape(p: FreePart): CadNode {
           { type: 'cylinder', r: r3(r - w), h: r3(sz + 2), center: true },
         ],
       });
+    }
+    case 'hohlraum': {
+      // Profil quer (Y) × Höhe (Z), entlang X extrudiert
+      const hy = sy / 2,
+        hz = sz / 2;
+      let pts: [number, number][];
+      if (e.dach === 'flach') pts = [[-hy, -hz], [hy, -hz], [hy, hz], [-hy, hz]];
+      else if (e.dach === 'rund') {
+        // Tropfen: Kreis unten, oben 45°-Spitze. Einheitsform: Breite 2, Höhe 1 + √2
+        const H = 1 + Math.SQRT2;
+        pts = [];
+        for (let i = 0; i <= 24; i++) {
+          const a = Math.PI * 0.75 + (i / 24) * Math.PI * 1.5;
+          pts.push([Math.cos(a), Math.sin(a)]);
+        }
+        pts.push([0, Math.SQRT2]);
+        pts = pts.map(([y, z]) => [r3(y * hy), r3(((z + 1) / H) * sz - hz)] as [number, number]);
+      } else {
+        const rh = Math.min(hy, sz);
+        pts = [[-hy, -hz], [hy, -hz], [hy, r3(hz - rh)], [r3(hy - rh), hz], [r3(-hy + rh), hz], [-hy, r3(hz - rh)]];
+        if (rh >= hy - 1e-6) pts = [[-hy, -hz], [hy, -hz], [hy, r3(hz - rh)], [0, hz], [-hy, r3(hz - rh)]];
+      }
+      return { type: 'rotate', a: [90, 0, 90], children: [{ type: 'extrude', h: r3(sx), center: true, shape: { type: 'polygon', points: pts } }] };
     }
     case 'keil':
       return {

@@ -50,7 +50,8 @@ KONSTRUKTIONSREGELN (zwingend):
 5. Mehrteilige Objekte (z. B. Box + Deckel) nebeneinander mit Abstand auf das Bett legen.
 6. Mehrfarbig nur wenn gewünscht oder sinnvoll (Beschriftung, Logo, Einlage): color-Knoten auf root-Ebene, Slot 1 = Grundkörper. Spätere color-Knoten haben Vorrang bei Überschneidung.
 7. Parameterbereiche (min/max) so wählen, dass das Modell im gesamten Bereich gültig bleibt.
-8. Kompakt bleiben: lieber Schleifen (for) als viele Kopien. Maximal ca. 300 Knoten.
+8. Hohlräume (wenn gewünscht oder bei massiven, großen Teilen): geschlossener Hohlraum per difference, Mindestwand 2 mm, Decke als 45°-Satteldach (polygon-Profil extrudiert), damit ohne Stützen druckbar.
+9. Kompakt bleiben: lieber Schleifen (for) als viele Kopien. Maximal ca. 300 Knoten.
 
 BEISPIEL:
 `;

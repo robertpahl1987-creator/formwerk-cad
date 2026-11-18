@@ -4,6 +4,7 @@ import { defaultValues } from '../cad/validate';
 import type { ColorZone, FilamentSlot, ModelDef, Orientation, Value } from '../cad/types';
 import type { BuildResult } from './pipeline';
 import { DEFAULT_SPLIT, type SplitOptions } from '../cad/split';
+import { DEFAULT_HOLLOW, type HollowOptions } from '../cad/build';
 import { PROFILES, type PrintProfile } from '../mesh/mesh';
 
 export type Mode = 'text' | 'photo' | 'library' | 'free';
@@ -20,6 +21,7 @@ export interface Settings {
   fase: boolean;
   palette: FilamentSlot[];
   split: SplitOptions;
+  hollow: HollowOptions;
 }
 
 export interface ViewOpts {
@@ -72,6 +74,7 @@ const DEFAULT_SETTINGS: Settings = {
   fase: true,
   palette: DEFAULT_PALETTE,
   split: DEFAULT_SPLIT,
+  hollow: DEFAULT_HOLLOW,
 };
 
 const STORE_KEY = 'formwerk-cad:settings:v1';
@@ -95,6 +98,7 @@ function loadSettings(): Settings {
       palette: s.palette?.length ? s.palette : DEFAULT_PALETTE,
       profile: { ...DEFAULT_SETTINGS.profile, ...(s.profile ?? {}) },
       split: { ...DEFAULT_SPLIT, ...(s.split ?? {}), enabled: false },
+      hollow: { ...DEFAULT_HOLLOW, ...(s.hollow ?? {}) },
     };
   } catch {
     return DEFAULT_SETTINGS;

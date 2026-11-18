@@ -321,6 +321,7 @@ export function App() {
           bedSize: s.bedSize,
           bedHeight: s.bedHeight,
           split: s.split,
+          hollow: s.hollow,
         });
         dispatch({ type: 'buildOk', build: r });
       } catch (e) {
@@ -329,7 +330,7 @@ export function App() {
       }
     }, 90);
     return () => clearTimeout(t);
-  }, [state.model, state.values, state.orientation, state.zonesOn, state.zones, s.tol, s.fase, s.palette, s.material, s.profile, s.layer, s.overhangDeg, s.bedSize, s.bedHeight, s.split, dispatch]);
+  }, [state.model, state.values, state.orientation, state.zonesOn, state.zones, s.tol, s.fase, s.palette, s.material, s.profile, s.layer, s.overhangDeg, s.bedSize, s.bedHeight, s.split, s.hollow, dispatch]);
 
   const b = state.build;
   const display = useMemo(() => {

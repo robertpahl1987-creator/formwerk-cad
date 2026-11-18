@@ -1,4 +1,4 @@
-import { buildParts } from '../cad/build';
+import { buildParts, type HollowOptions } from '../cad/build';
 import type { SplitOptions, SplitReport } from '../cad/split';
 import type { ColorZone, FilamentSlot, Globals, ModelDef, Orientation, Value } from '../cad/types';
 import {
@@ -70,6 +70,7 @@ export interface PipelineSettings {
   bedSize: number;
   bedHeight: number;
   split: SplitOptions;
+  hollow?: HollowOptions;
 }
 
 export function slotColor(palette: FilamentSlot[], slot: number): string {
@@ -126,7 +127,7 @@ const ORIENTS: [number, number][] = [
 export function runPipeline(model: ModelDef, values: Record<string, Value>, s: PipelineSettings): BuildResult {
   const t0 = performance.now();
   const bed = { size: s.bedSize, height: s.bedHeight };
-  const out = buildParts(model, values, s.globals, s.orientation, s.zones, s.split.enabled ? { opts: s.split, bed } : undefined);
+  const out = buildParts(model, values, s.globals, s.orientation, s.zones, s.split.enabled ? { opts: s.split, bed } : undefined, s.hollow);
   const density = MATERIALS.find((m) => m.id === s.material)?.density ?? 1.24;
   const mk = (slot: number, name: string, mesh: Mesh): PartResult => ({ slot, name, color: slotColor(s.palette, slot), mesh, stats: analyzeMesh(mesh, s.overhangDeg, 0) });
 

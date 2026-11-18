@@ -341,6 +341,71 @@ function bbox(geoms: Geom[]): { min: number[]; max: number[] } {
   return { min, max };
 }
 
+// ---------- Automatischer Hohlraum ----------
+export interface HollowOptions {
+  enabled: boolean;
+  /** Mindest-Wandstärke rundum (mm) */
+  wall: number;
+  /** Decke als 45°-Satteldach → druckbar ohne Stützmaterial */
+  roof: boolean;
+}
+export const DEFAULT_HOLLOW: HollowOptions = { enabled: false, wall: 2.4, roof: true };
+
+const HOLLOW_DIRS: [number, number, number][] = (() => {
+  const d: [number, number, number][] = [
+    [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+  ];
+  const k = 1 / Math.sqrt(3);
+  for (const x of [-k, k]) for (const y of [-k, k]) for (const z of [-k, k]) d.push([x, y, z]);
+  return d;
+})();
+
+/**
+ * Höhlt einen Körper aus: Der Hohlraum ist der um `wall` nach innen versetzte Körper
+ * (Schnitt verschobener Kopien in 14 Richtungen – garantiert überall ≥ wall).
+ * Mit roof wird die Decke als 45°-Satteldach geformt, damit nichts frei in der Luft hängt.
+ * Zu dünne Bereiche bleiben automatisch massiv.
+ */
+export function hollowGeom(g: Geom, o: HollowOptions): { geom: Geom; hollowed: boolean } {
+  const t = o.wall / 0.8; // Ausgleich der Richtungs-Abtastung (cos 35° ≈ 0,82)
+  let inner = g;
+  for (const [x, y, z] of HOLLOW_DIRS) inner = B.intersect(inner, T.translate([x * t, y * t, z * t], g));
+  if (!polysOf(inner).length) return { geom: g, hollowed: false };
+  const bb = bbox([inner]);
+  const size = [0, 1, 2].map((i) => bb.max[i] - bb.min[i]);
+  if (size.some((v) => v < 1)) return { geom: g, hollowed: false };
+  if (o.roof) {
+    // First entlang der längeren Seite, Dachflächen 45° zur kürzeren Seite hin
+    const along = size[0] >= size[1] ? 0 : 1;
+    const across = along === 0 ? 1 : 0;
+    const c0 = bb.min[across],
+      c1 = bb.max[across];
+    const hw = (c1 - c0) / 2,
+      cc = (c0 + c1) / 2;
+    const apex = bb.max[2] + 0.01;
+    const z0 = bb.min[2] - 1;
+    const pts: [number, number][] = [
+      [cc - hw - 1, z0],
+      [cc + hw + 1, z0],
+      [cc + hw + 1, apex - hw - 1],
+      [cc, apex],
+      [cc - hw - 1, apex - hw - 1],
+    ];
+    // Profil liegt in (across, z); extrudiert entlang der First-Achse
+    let roof = E.extrudeLinear({ height: size[along] + 4 }, P.polygon({ points: pts }));
+    // lokale Achsen: x→across, y→z, z→along
+    roof = T.rotateX(Math.PI / 2, roof); // Profil-y → Welt-z, Extrusion → −Welt-y (across = x)
+    if (along === 0) roof = T.rotateZ(Math.PI / 2, roof); // across x → y, Extrusion → +x
+    const rb = bbox([roof]);
+    const shift = [0, 0, 0];
+    shift[along] = (bb.min[along] - 2) - rb.min[along];
+    roof = T.translate(shift, roof);
+    inner = B.intersect(inner, roof);
+    if (!polysOf(inner).length) return { geom: g, hollowed: false };
+  }
+  return { geom: B.subtract(g, inner), hollowed: true };
+}
+
 export interface BuiltPart {
   slot: number;
   name: string;
@@ -374,6 +439,7 @@ export function buildParts(
   o: Orientation,
   zones?: ColorZone[] | null,
   split?: { opts: SplitOptions; bed: { size: number; height: number } },
+  hollow?: HollowOptions,
 ): BuildOutput {
   const ctx: Ctx = { scope: makeScope(model, values, g), count: { n: 0 } };
   const groups: { slot: number; name: string; geoms: Geom[] }[] = [];
@@ -419,6 +485,12 @@ export function buildParts(
     const t: [number, number, number] = [-(bb.min[0] + bb.max[0]) / 2, -(bb.min[1] + bb.max[1]) / 2, -bb.min[2]];
     parts = parts.map((p) => ({ ...p, geom: T.translate(t, p.geom) }));
     const height = bb.max[2] - bb.min[2];
+
+    // Automatischer Hohlraum (nur Grundkörper = erstes Teil; Beschriftungen/Einlagen bleiben massiv)
+    if (hollow?.enabled && parts.length) {
+      const h = hollowGeom(parts[0].geom, hollow);
+      parts[0] = { ...parts[0], geom: h.geom };
+    }
 
     // Farbwechsel nach Höhe
     if (zones && zones.length > 1) {
