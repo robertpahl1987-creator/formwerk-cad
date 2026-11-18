@@ -53,7 +53,7 @@ export type CadNode =
   | { type: 'scale'; v: Vec3; children: CadNode[] }
   /** Einstrich-Schrift (Beschriftung/Einlage), Text in XY, Höhe h nach +Z. */
   /** text darf {param}-Platzhalter für Textparameter enthalten. */
-  | { type: 'text'; text: string; size: Expr; h: Expr; stroke?: Expr; center?: boolean }
+  | { type: 'text'; text: string; size: Expr; h: Expr; stroke?: Expr; center?: boolean; /** max. Breite – längerer Text wird verkleinert */ maxW?: Expr }
   /**
    * Mehrfarbendruck: Kinder gehören zu Filament-Slot `slot` (1–8, z. B. AMS).
    * Nur auf oberster Ebene (root) bildet ein color-Knoten ein eigenes Druckteil;

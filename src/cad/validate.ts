@@ -172,6 +172,7 @@ export function validateModel(raw: unknown, source: ModelDef['source'] = 'ai'): 
         checkExpr(n.size, `${w}.size`, scope);
         checkExpr(n.h, `${w}.h`, scope);
         if (n.stroke !== undefined) checkExpr(n.stroke, `${w}.stroke`, scope);
+        if (n.maxW !== undefined) checkExpr(n.maxW, `${w}.maxW`, scope);
         return;
       case 'color':
         checkExpr(n.slot, `${w}.slot`, scope);

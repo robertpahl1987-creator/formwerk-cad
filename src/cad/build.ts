@@ -231,7 +231,16 @@ function build(n: CadNode, ctx: Ctx): Geom[] {
       return g ? [T.scale(sv, g)] : [];
     }
     case 'text':
-      return [textSolid(fillText(n.text, s), num(n.size, s, 'text.size'), num(n.h, s, 'text.h'), n.stroke !== undefined ? num(n.stroke, s, 'text.stroke') : undefined, n.center !== false)];
+      return [
+        textSolid(
+          fillText(n.text, s),
+          num(n.size, s, 'text.size'),
+          num(n.h, s, 'text.h'),
+          n.stroke !== undefined ? num(n.stroke, s, 'text.stroke') : undefined,
+          n.center !== false,
+          n.maxW !== undefined ? num(n.maxW, s, 'text.maxW') : undefined,
+        ),
+      ];
     case 'color': {
       // Innerhalb von CSG-Operationen nur Gruppierung; Farbtrennung passiert auf oberster Ebene.
       const u = unionAll(children(n.children, ctx));
@@ -264,11 +273,22 @@ export function makeScope(model: ModelDef, values: Record<string, Value>, g: Glo
 }
 
 // ---------- Text (Einstrich-Vektorschrift von JSCAD) ----------
-function textSolid(text: string, size: number, h: number, stroke: number | undefined, center: boolean): Geom {
-  positive(size, 'Schriftgröße');
+function textSolid(text: string, size0: number, h: number, stroke: number | undefined, center: boolean, maxW?: number): Geom {
+  positive(size0, 'Schriftgröße');
   positive(h, 'Texthöhe');
-  const sw = stroke && stroke > 0 ? stroke : Math.max(0.6, size * 0.16);
-  const segments = (jscad as any).text.vectorText({ height: size, input: normalizeText(text) }) as [number, number][][];
+  const input = normalizeText(text);
+  let size = size0;
+  let segments = (jscad as any).text.vectorText({ height: size, input }) as [number, number][][];
+  if (maxW && maxW > 0) {
+    // Breite inkl. Strichstärke messen und ggf. Schrift verkleinern
+    const xs = segments.flat().map((p) => p[0]);
+    const width = xs.length ? Math.max(...xs) - Math.min(...xs) + (stroke && stroke > 0 ? stroke : size * 0.16) : 0;
+    if (width > maxW) {
+      size = Math.max(1, (size * maxW) / width);
+      segments = (jscad as any).text.vectorText({ height: size, input }) as [number, number][][];
+    }
+  }
+  const sw = Math.min(stroke && stroke > 0 ? stroke : Math.max(0.6, size * 0.16), size * 0.3);
   const shapes: Geom[] = [];
   let minX = Infinity,
     minY = Infinity,

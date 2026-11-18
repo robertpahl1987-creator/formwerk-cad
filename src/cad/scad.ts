@@ -71,6 +71,8 @@ function node(n: CadNode, ind: string): string {
     case 'text': {
       const txt = textToScad(n.text);
       const al = n.center !== false ? ', halign = "center", valign = "center"' : '';
+      if (n.maxW !== undefined)
+        return `${ind}// In der App wird zu langer Text auf max. ${e(n.maxW)} mm Breite verkleinert\n${ind}linear_extrude(height = ${e(n.h)}) text(${txt}, size = ${e(n.size)}${al});\n`;
       return `${ind}// Hinweis: OpenSCAD nutzt eine andere Schrift als die App-Vorschau (Einstrich-Font)\n${ind}linear_extrude(height = ${e(n.h)}) text(${txt}, size = ${e(n.size)}${al});\n`;
     }
     case 'color':

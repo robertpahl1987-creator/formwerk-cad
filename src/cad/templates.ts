@@ -394,7 +394,7 @@ export const TEMPLATES: Template[] = [
       num('B', 'Breite', 35, 10, 150, 0.5, { role: 'width' }),
       num('T', 'Plattenstärke', 3, 1, 10, 0.1, { role: 'height' }),
       num('r', 'Eckenradius', 5, 0, 20, 0.5),
-      num('size', 'Schriftgröße', 14, 3, 80, 0.5, { group: 'Schrift' }),
+      num('size', 'Schriftgröße', 12, 3, 80, 0.5, { group: 'Schrift', hint: 'Zu langer Text wird automatisch auf die Schildbreite verkleinert.' }),
       num('th', 'Schrift erhaben', 1.2, 0.2, 5, 0.1, { group: 'Schrift' }),
       num('stroke', 'Strichstärke', 2.2, 0.6, 8, 0.1, { group: 'Schrift' }),
       flag('rand', 'Rahmen in Schriftfarbe', true, { group: 'Schrift' }),
@@ -421,15 +421,12 @@ export const TEMPLATES: Template[] = [
         slot: 2,
         name: 'Schrift',
         children: [
-          T([0, 0, 'T - 0.01'], { type: 'text', text: '{txt}', size: 'size', h: 'th + 0.01', stroke: 'stroke' }),
+          T([0, 0, 'T'], { type: 'text', text: '{txt}', size: 'size', h: 'th', stroke: 'stroke', maxW: 'L - 26' }),
           {
             type: 'if',
             cond: 'rand',
             then: [
-              T(
-                [0, 0, 'T - 0.01'],
-                diff(rrect('L - 2', 'B - 2', 'max(r - 1, 0)', 'th + 0.01'), T([0, 0, -1], rrect('L - 5', 'B - 5', 'max(r - 2.5, 0)', 'th + 2'))),
-              ),
+              T([0, 0, 'T'], diff(rrect('L - 2', 'B - 2', 'max(r - 1, 0)', 'th'), T([0, 0, -1], rrect('L - 5', 'B - 5', 'max(r - 2.5, 0)', 'th + 2')))),
             ],
           },
         ],
