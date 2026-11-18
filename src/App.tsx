@@ -1,7 +1,7 @@
 import { Component, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
-import { ColorPanel, ExportPanel, Library, MaterialPanel, ParamPanel, PrintCheck, SplitPanel } from './components/ModelPanels';
+import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, ParamPanel, PrintCheck, SplitPanel } from './components/ModelPanels';
 import { EditPanel } from './components/EditPanel';
 import { FreeMode } from './components/FreeMode';
 import { PhotoMode } from './components/PhotoMode';
@@ -133,6 +133,7 @@ function PanelContent() {
           )}
         </div>
       )}
+      {!isFree && <EmptyState />}
       {!isFree && <EditPanel />}
       {!isFree && <ParamPanel />}
       <PrintCheck />

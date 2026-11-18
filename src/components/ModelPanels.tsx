@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toScad } from '../cad/scad';
 import type { JointType } from '../cad/split';
 import { TEMPLATES } from '../cad/templates';
@@ -46,6 +46,49 @@ export function Library() {
   );
 }
 
+// ---------------------------------------------------------------- Löschen
+/** Objekt entfernen (zweimal tippen); mit ↶ wiederherstellbar. */
+function DeleteButton() {
+  const { dispatch } = useStore();
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <button
+      title="Objekt löschen"
+      className={cx('text-[11px] px-1.5 rounded', armed ? 'bg-red-500/20 text-red-300' : 'text-slate-400 hover:text-red-300')}
+      onClick={() => {
+        if (!armed) return setArmed(true);
+        setArmed(false);
+        dispatch({ type: 'clearModel' });
+        dispatch({ type: 'toast', kind: 'info', text: 'Objekt gelöscht – mit ↶ Wiederherstellen holst du es zurück' });
+      }}
+    >
+      {armed ? 'Sicher? Nochmal tippen' : '🗑 Löschen'}
+    </button>
+  );
+}
+
+/** Hinweis, wenn kein Objekt da ist. */
+export function EmptyState() {
+  const { state, dispatch } = useStore();
+  if (state.model) return null;
+  return (
+    <div className="m-4 rounded-xl border border-dashed border-[#30363d] p-4 text-center space-y-3">
+      <p className="text-[13px] text-slate-300">Noch kein Objekt auf dem Druckbett.</p>
+      <p className="text-[12px] text-slate-500">Oben beschreiben (Text → CAD), ein Foto nutzen, eine Vorlage wählen oder frei bauen.</p>
+      {state.history.length > 0 && (
+        <Button className="h-9 text-[12.5px]" onClick={() => dispatch({ type: 'undo' })}>
+          ↶ Letztes Objekt wiederherstellen
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- Parameter
 export function ParamPanel() {
   const { state, dispatch } = useStore();
@@ -71,6 +114,7 @@ export function ParamPanel() {
           <button className="text-[11px] text-slate-400 hover:text-white px-1.5" onClick={() => dispatch({ type: 'resetParams' })}>
             Zurücksetzen
           </button>
+          <DeleteButton />
         </span>
       }
     >

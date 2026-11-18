@@ -160,7 +160,16 @@ function reducer(s: State, a: Action): State {
       };
     }
     case 'clearModel':
-      return { ...s, model: null, values: {}, build: null, buildError: null, building: false };
+      return {
+        ...s,
+        model: null,
+        values: {},
+        build: null,
+        buildError: null,
+        building: false,
+        // gelöschtes Objekt bleibt im Verlauf → mit ↶ wiederherstellbar
+        history: s.model ? [...s.history.slice(-19), { model: s.model, values: s.values }] : s.history,
+      };
     case 'param':
       return { ...s, values: { ...s.values, [a.key]: a.value } };
     case 'resetParams':
@@ -201,11 +210,11 @@ function reducer(s: State, a: Action): State {
 
 const Ctx = createContext<{ state: State; dispatch: Dispatch<Action> } | null>(null);
 
-export function StoreProvider({ children, initialModel }: { children: ReactNode; initialModel: ModelDef }) {
+export function StoreProvider({ children, initialModel = null }: { children: ReactNode; initialModel?: ModelDef | null }) {
   const [state, dispatch] = useReducer(reducer, undefined, (): State => ({
     mode: 'text',
     model: initialModel,
-    values: defaultValues(initialModel),
+    values: initialModel ? defaultValues(initialModel) : {},
     orientation: { rx: 0, ry: 0 },
     zonesOn: false,
     zones: [
