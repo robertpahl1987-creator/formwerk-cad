@@ -17,6 +17,8 @@ import { runPipeline } from '../src/state/pipeline';
 import { DEFAULT_HOLLOW } from '../src/cad/build';
 import { PROFILES } from '../src/mesh/mesh';
 import { optimizePrint } from '../src/mesh/optimize';
+import { lithoSoup, DEFAULT_LITHO } from '../src/photo/litho';
+import { weldTriangles } from '../src/mesh/importMesh';
 import { parseMeasuresFromText, applyMeasures, matchTemplate } from '../src/cad/templates';
 import { freeToModel, newPart, PRESETS, type FreePart } from '../src/cad/free';
 
@@ -319,6 +321,19 @@ for (const id of ['hook', 'box', 'angle']) {
   const ok = tpl.id === 'organizer' && vals.nx === 3 && vals.ny === 4 && vals.L === 188 && vals.B === 250 && vals.wall === 2;
   if (!ok) fails++;
   console.log(`${ok ? '✓' : '✗'} Offline Setzkasten: ${tpl.id} L ${vals.L} B ${vals.B} H ${vals.H} nx ${vals.nx} ny ${vals.ny} wall ${vals.wall}`);
+}
+
+// ---------------------------------------------------------------- Lithophanie
+for (const arc of [0, 180]) {
+  checks++;
+  const w = 60, h = 40;
+  const lum = new Float32Array(w * h).map((_, i) => 0.5 + 0.5 * Math.sin(i * 0.37) * Math.cos(i * 0.011));
+  const soup = lithoSoup({ w, h, lum }, { ...DEFAULT_LITHO, width: 70, arc });
+  const m = weldTriangles(soup);
+  const st = analyzeMesh(m.mesh);
+  const ok = st.manifold && st.volume > 0;
+  if (!ok) fails++;
+  console.log(`${ok ? '✓' : '✗'} Lithophanie ${arc ? `gebogen ${arc}°` : 'flach'}: ${st.triangles} Dreiecke, ${m.size.map((v) => v.toFixed(1)).join(' × ')} mm, Volumen ${st.volume.toFixed(0)} mm³, offen ${st.openEdges}, nicht-manifold ${st.nonManifoldEdges}`);
 }
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);

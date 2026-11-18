@@ -8,6 +8,7 @@ import { asmSettings, assembledParts } from './state/assemblyBuild';
 import { EditPanel } from './components/EditPanel';
 import { freeBus, useFreeSnapshot } from './state/freeBus';
 import { FreeMode } from './components/FreeMode';
+import { LithoMode } from './components/LithoMode';
 import { PhotoMode } from './components/PhotoMode';
 import { abortRef, TextMode } from './components/TextMode';
 import { Button, cx, SliderRow, useMedia } from './components/ui';
@@ -84,6 +85,7 @@ const MODES: { m: Mode; icon: string; label: string; sub: string }[] = [
   { m: 'photo', icon: '📷', label: 'Foto', sub: 'Teil abfotografieren & nachbauen' },
   { m: 'library', icon: '📚', label: 'Vorlagen', sub: 'Fertige Modelle anpassen' },
   { m: 'free', icon: '✏️', label: 'Frei bauen', sub: 'Aus Formen zusammensetzen' },
+  { m: 'litho', icon: '🖼️', label: 'Lithophanie', sub: 'Foto als Leuchtbild' },
 ];
 
 const STEPS: { s: Step; n: number; label: string }[] = [
@@ -252,6 +254,9 @@ function PanelContent() {
           </div>
           <div className={state.mode === 'free' ? '' : 'hidden'}>
             <FreeMode />
+          </div>
+          <div className={state.mode === 'litho' ? '' : 'hidden'}>
+            <LithoMode />
           </div>
         </div>
         {state.model && state.mode !== 'free' && <NextButton to="adjust" label="Weiter: Anpassen →" />}

@@ -36,7 +36,7 @@ function loadAsm(): AsmState {
   }
 }
 
-export type Mode = 'text' | 'photo' | 'library' | 'free';
+export type Mode = 'text' | 'photo' | 'library' | 'free' | 'litho';
 /** Die drei Arbeitsschritte im Seitenmenü */
 export type Step = 'create' | 'adjust' | 'print';
 
