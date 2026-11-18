@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { freeToModel, KINDS, localExtent, newPart, PRESETS, worldBox, type FreePart, type Preset } from '../cad/free';
+import { freeToModel, KINDS, localExtent, newPart, PRESETS, rasterHoles, worldBox, type FreePart, type Preset, type RasterOptions } from '../cad/free';
 import { outlineKey, outlineText } from '../cad/textOutline';
 import { saveFile } from '../platform/download';
 import { freeBus, type FreeCommand } from '../state/freeBus';
@@ -59,6 +59,8 @@ export function FreeMode() {
   const undoStack = useRef<Saved[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  /** Fächer-Dialog: Ausgangsteil (Körper oder negatives Teil) */
+  const [raster, setRaster] = useState<{ orig: FreePart; o: RasterOptions } | null>(null);
   const active = state.mode === 'free';
   /** Zeigt die Vorschau gerade ein frei gebautes Modell? (nur dann darf „leer“ die Vorschau leeren) */
   const freeShown = useRef(false);
@@ -218,6 +220,41 @@ export function FreeMode() {
 
   const palette = state.settings.palette;
 
+  // ---- Fächer: Hauptobjekt in gleich große negative Teile aufteilen ----
+  const openRaster = (p: FreePart) => {
+    const [W, D] = localExtent(p);
+    const existing = parts.filter((x) => x.e.raster === p.id).length;
+    const o: RasterOptions = p.hole
+      ? { nx: 2, ny: 1, nz: 1, wall: 1.6, floor: 0, open: false, r: 0 }
+      : { nx: Math.max(1, Math.round(W / 40)), ny: Math.max(1, Math.round(D / 40)), nz: 1, wall: 1.6, floor: 1.2, open: true, r: 1 };
+    undoStack.current = [...undoStack.current.slice(-39), data];
+    lastKey.current = '';
+    setRaster({ orig: structuredClone(p), o });
+    applyRaster(p, o, existing > 0);
+  };
+  const applyRaster = (orig: FreePart, o: RasterOptions, quiet = false) => {
+    const res = rasterHoles(orig, o);
+    if ('error' in res) {
+      if (!quiet) dispatch({ type: 'toast', kind: 'err', text: res.error });
+      return;
+    }
+    setData((d) => {
+      const group = orig.group ?? Math.max(0, ...d.parts.map((p) => p.group ?? 0)) + 1;
+      let n = d.next;
+      const fresh = res.holes.map((h) => ({ ...h, id: n++, group }) as FreePart);
+      const kept = d.parts
+        .filter((p) => p.e.raster !== orig.id && !(orig.hole && p.id === orig.id))
+        .map((p) => (!orig.hole && p.id === orig.id ? { ...p, group } : p));
+      return { parts: [...kept, ...fresh], next: n };
+    });
+  };
+  const setRasterOpt = (patch: Partial<RasterOptions>) => {
+    if (!raster) return;
+    const o = { ...raster.o, ...patch };
+    setRaster({ ...raster, o });
+    applyRaster(raster.orig, o);
+  };
+
   // ---- Verbindung zur 3D-Ansicht (Anklicken & Rechtsklick-Menü) ----
   useEffect(() => {
     freeBus.publish({ parts: active ? parts : [], sel: active ? sels : [] });
@@ -319,6 +356,9 @@ export function FreeMode() {
       case 'selectAll':
         setSels(parts.map((p) => p.id));
         return;
+      case 'raster':
+        if (one) openRaster(one);
+        return;
       case 'undo':
         undo();
         return;
@@ -399,6 +439,23 @@ export function FreeMode() {
         <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => (loadProject(e.target.files?.[0]), (e.target.value = ''))} />
       </div>
 
+      {raster && (
+        <RasterPanel
+          orig={raster.orig}
+          o={raster.o}
+          set={setRasterOpt}
+          cell={(() => {
+            const r = rasterHoles(raster.orig, raster.o);
+            return 'error' in r ? null : r.cell;
+          })()}
+          onClose={() => setRaster(null)}
+          onUndo={() => {
+            undo();
+            setRaster(null);
+          }}
+        />
+      )}
+
       {part && <PartEditor key={part.id} part={part} edit={edit} onDone={() => (lastKey.current = '')} palette={palette} />}
 
       {part && (
@@ -414,6 +471,9 @@ export function FreeMode() {
           </Button>
           <Button className="h-9 text-[12.5px]" onClick={() => duplicate(part, true)}>
             ⊖ Passendes Loch
+          </Button>
+          <Button className="h-9 text-[12.5px] col-span-2" onClick={() => openRaster(part)}>
+            ▦ {part.hole ? 'Negatives Teil in gleiche Stücke teilen' : 'In gleiche Fächer aufteilen'}
           </Button>
           <Button variant="danger" className="h-9 text-[12.5px] col-span-2" onClick={() => remove(part)}>
             🗑 Teil löschen
@@ -584,6 +644,61 @@ function PartEditor({
         <SliderRow key={lab} label={lab} value={part.rot[i]} min={-180} max={180} step={5} unit="°" onChange={(v) => set('rot' + i, (p) => (p.rot[i] = v))} />
       ))}
       {kd.hint && <p className="text-[12px] text-slate-500 leading-relaxed">{kd.hint}</p>}
+    </div>
+  );
+}
+
+function RasterPanel({
+  orig,
+  o,
+  set,
+  cell,
+  onClose,
+  onUndo,
+}: {
+  orig: FreePart;
+  o: RasterOptions;
+  set: (p: Partial<RasterOptions>) => void;
+  cell: [number, number, number] | null;
+  onClose: () => void;
+  onUndo: () => void;
+}) {
+  const f = (v: number) => v.toLocaleString('de-DE', { maximumFractionDigits: 1 });
+  return (
+    <div className="rounded-xl border border-[#00ae42]/60 bg-[#0d1117] p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[13px] font-semibold text-white">▦ {orig.hole ? `„${orig.name}“ aufteilen` : `Fächer in „${orig.name}“`}</div>
+        <button onClick={onClose} className="text-slate-400 hover:text-white px-1">
+          ✕
+        </button>
+      </div>
+      <p className="text-[11.5px] text-slate-500">
+        {orig.hole
+          ? 'Das negative Teil wird in gleich große Stücke mit Stegen dazwischen geteilt – Außenmaß bleibt gleich.'
+          : 'Gleich große negative Fächer, automatisch an das Hauptobjekt angepasst (Außenwand, Boden, Stege). Änderungen wirken sofort.'}
+      </p>
+      <SliderRow label="Fächer in X (Breite)" value={o.nx} min={1} max={20} step={1} unit="Stk" onChange={(v) => set({ nx: Math.round(v) })} />
+      <SliderRow label="Fächer in Y (Tiefe)" value={o.ny} min={1} max={20} step={1} unit="Stk" onChange={(v) => set({ ny: Math.round(v) })} />
+      <SliderRow label="Ebenen in Z (Höhe)" value={o.nz} min={1} max={10} step={1} unit="Stk" onChange={(v) => set({ nz: Math.round(v) })} />
+      <SliderRow label={orig.hole ? 'Steg zwischen Stücken' : 'Wand / Steg'} value={o.wall} min={0.4} max={20} step={0.2} unit="mm" onChange={(v) => set({ wall: v })} />
+      {!orig.hole && (
+        <>
+          <SliderRow label="Boden" value={o.floor} min={0.4} max={30} step={0.2} unit="mm" onChange={(v) => set({ floor: v })} />
+          <SliderRow label="Eckenradius Fach" value={o.r} min={0} max={20} step={0.5} unit="mm" onChange={(v) => set({ r: v })} />
+          <Toggle label="Oben offen (Setzkasten)" hint="Aus: geschlossene Kammern / Hohlräume" checked={o.open} onChange={(v) => set({ open: v })} />
+        </>
+      )}
+      <p className={cx('text-[12.5px]', cell ? 'text-[#3ddc84]' : 'text-amber-300')}>
+        {cell ? `Fach innen: ${f(cell[0])} × ${f(cell[1])} × ${f(cell[2])} mm · ${o.nx * o.ny * o.nz} Fächer` : 'Passt so nicht – weniger Fächer oder dünnere Stege wählen.'}
+      </p>
+      <div className="grid grid-cols-2 gap-1.5">
+        <Button className="h-9 text-[12.5px]" onClick={onUndo}>
+          ↶ Verwerfen
+        </Button>
+        <Button variant="primary" className="h-9 text-[12.5px]" onClick={onClose}>
+          ✓ Fertig
+        </Button>
+      </div>
     </div>
   );
 }

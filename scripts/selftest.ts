@@ -107,6 +107,28 @@ for (const id of ['box', 'wallholder', 'angle']) {
     check(`frei: Quader mit Hohlraum (${dach})`, fm, {});
   }
 }
+// Fächer: Setzkasten aus Quader + gleich großen negativen Teilen
+{
+  const { freeToModel, newPart, PRESETS, rasterHoles } = await import('../src/cad/free');
+  const body = newPart(PRESETS.find((p) => p.label === 'Quader')!, 1);
+  body.size = [200, 150, 60];
+  body.pos = [0, 0, 30];
+  for (const [nx, ny, nz, open] of [[4, 3, 1, true], [3, 2, 2, false]] as [number, number, number, boolean][]) {
+    const r = rasterHoles(body, { nx, ny, nz, wall: 1.6, floor: 1.2, open, r: 1 });
+    if ('error' in r) throw new Error(r.error);
+    const holes = r.holes.map((h, i) => ({ ...h, id: 10 + i }));
+    check(`frei: Setzkasten ${nx}×${ny}×${nz} ${open ? 'offen' : 'geschlossen'} (Fach ${r.cell.join('×')})`, freeToModel([body, ...holes])!, {});
+  }
+  // negatives Teil in 3 Stücke teilen
+  const hole = newPart(PRESETS.find((p) => p.label === 'Hohlraum')!, 2);
+  hole.kind = 'quader';
+  hole.e = { r: 0 };
+  hole.size = [90, 20, 10];
+  hole.pos = [0, 0, 30];
+  const r2 = rasterHoles(hole, { nx: 3, ny: 1, nz: 1, wall: 2, floor: 0, open: false, r: 0 });
+  if ('error' in r2) throw new Error(r2.error);
+  check('frei: negatives Teil in 3 Stücke geteilt', freeToModel([body, ...r2.holes.map((h, i) => ({ ...h, id: 50 + i }))])!, {});
+}
 const pm = photoModel(
   [[-20, -10], [20, -10], [25, 0], [20, 10], [-20, 10], [-25, 0]],
   [[[-5, -3], [5, -3], [5, 3], [-5, 3]]],

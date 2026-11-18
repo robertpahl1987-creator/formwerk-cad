@@ -96,6 +96,9 @@ export function ContextMenu() {
           {grouped && <Item label="✂ Trennen (Gruppe auflösen)" onClick={() => run('ungroup')} />}
           {allHoles ? <Item label="■ In Körper umwandeln" onClick={() => run('body')} /> : <Item label="⊖ In negatives Teil umwandeln" onClick={() => run('hole')} />}
           {!multi && !allHoles && <Item label="⊖ Passendes Loch mit Spiel erzeugen" onClick={() => run('matchHole')} />}
+          {!multi && (
+            <Item label={allHoles ? '▦ In gleiche Stücke teilen…' : '▦ In gleiche Fächer aufteilen…'} onClick={() => run('raster')} />
+          )}
           <Sub label="⊖ Negatives Teil hinzufügen">
             {negShapes.map((p) => (
               <Item key={p.label} label={`${p.icon} ${p.label}`} onClick={() => run('addHole', p.label)} />

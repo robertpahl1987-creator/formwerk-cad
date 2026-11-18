@@ -28,6 +28,7 @@ export type FreeAction =
   | 'add'
   | 'addHole'
   | 'selectAll'
+  | 'raster'
   | 'undo';
 
 export type FreeCommand =

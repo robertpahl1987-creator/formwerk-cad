@@ -455,3 +455,95 @@ export function newPart(preset: Preset, id: number): FreePart {
     e: { ...preset.e },
   };
 }
+
+
+// ------------------------------------------------------------ Fächer / Aufteilen
+export interface RasterOptions {
+  nx: number;
+  ny: number;
+  nz: number;
+  /** Stegbreite zwischen den Fächern (und Außenwand beim Hauptobjekt) */
+  wall: number;
+  /** Bodenstärke (nur Hauptobjekt) */
+  floor: number;
+  /** Fächer oben offen (Setzkasten) oder geschlossen (Hohlkammern) */
+  open: boolean;
+  /** Eckenradius der Fächer */
+  r: number;
+}
+
+/** Dreht einen Vektor wie der rotate-Knoten: erst X, dann Y, dann Z (Grad). */
+export function rotateVec(v: V3, rot: V3): V3 {
+  const [a, b, c] = rot.map((d) => (d * Math.PI) / 180);
+  let [x, y, z] = v;
+  [y, z] = [y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)];
+  [x, z] = [x * Math.cos(b) + z * Math.sin(b), -x * Math.sin(b) + z * Math.cos(b)];
+  [x, y] = [x * Math.cos(c) - y * Math.sin(c), x * Math.sin(c) + y * Math.cos(c)];
+  return [x, y, z];
+}
+
+/**
+ * Erzeugt gleich große negative Fächer, passend in ein Teil.
+ *  - Körper: Fächer innerhalb der Außenwand, über dem Boden (oben offen oder geschlossen)
+ *  - negatives Teil: wird selbst in gleich große Stücke mit Stegen dazwischen geteilt
+ * Liefert die neuen Loch-Teile (ohne IDs) oder einen Fehlertext.
+ */
+export function rasterHoles(target: FreePart, o: RasterOptions): { holes: Omit<FreePart, 'id'>[]; cell: V3 } | { error: string } {
+  const [W, D, H] = localExtent(target);
+  const nx = Math.max(1, Math.round(o.nx)),
+    ny = Math.max(1, Math.round(o.ny)),
+    nz = Math.max(1, Math.round(o.nz));
+  const w = Math.max(0, o.wall);
+  let x0: number, y0: number, z0: number, z1: number, cw: number, cd: number, ch: number;
+  if (target.hole) {
+    // Loch aufteilen: Außenmaß bleibt, Stege nur zwischen den Stücken
+    cw = (W - (nx - 1) * w) / nx;
+    cd = (D - (ny - 1) * w) / ny;
+    ch = (H - (nz - 1) * w) / nz;
+    x0 = -W / 2;
+    y0 = -D / 2;
+    z0 = -H / 2;
+    z1 = H / 2;
+  } else {
+    const floor = Math.max(0, o.floor);
+    const topWall = o.open ? 0 : w;
+    cw = (W - (nx + 1) * w) / nx;
+    cd = (D - (ny + 1) * w) / ny;
+    z0 = -H / 2 + floor;
+    z1 = H / 2 - topWall;
+    ch = (z1 - z0 - (nz - 1) * w) / nz;
+    x0 = -W / 2 + w;
+    y0 = -D / 2 + w;
+  }
+  if (cw < 0.8 || cd < 0.8 || ch < 0.8) return { error: 'Zu viele Fächer oder zu dicke Stege – die Fächer würden kleiner als 0,8 mm.' };
+  const holes: Omit<FreePart, 'id'>[] = [];
+  const openTop = !target.hole && o.open;
+  for (let k = 0; k < nz; k++)
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++) {
+        const lx = x0 + cw / 2 + i * (cw + w);
+        const ly = y0 + cd / 2 + j * (cd + w);
+        let bz = z0 + k * (ch + w);
+        let tz = bz + ch;
+        // oberste Ebene bei offenen Fächern 1 mm über die Oberkante hinaus → sauber offen
+        if (openTop && k === nz - 1) tz = z1 + 1;
+        if (target.hole) {
+          bz -= 0.02;
+          tz += 0.02;
+        }
+        const lz = (bz + tz) / 2;
+        const off = rotateVec([lx, ly, lz], target.rot);
+        const r = Math.min(Math.max(0, o.r), cw / 2 - 0.05, cd / 2 - 0.05);
+        holes.push({
+          kind: 'quader',
+          name: `Fach ${i + 1}/${j + 1}${nz > 1 ? '/' + (k + 1) : ''}`,
+          hole: true,
+          slot: 1,
+          pos: [r3(target.pos[0] + off[0]), r3(target.pos[1] + off[1]), r3(target.pos[2] + off[2])],
+          rot: [...target.rot] as V3,
+          size: [r3(cw), r3(cd), r3(tz - bz)],
+          e: { r: r3(Math.max(0, r)), raster: target.id },
+        });
+      }
+  return { holes, cell: [r3(cw), r3(cd), r3(ch)] };
+}
