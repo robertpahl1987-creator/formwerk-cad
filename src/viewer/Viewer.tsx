@@ -197,11 +197,11 @@ function printMaterial(o: { layer: number; infill: number; clip: THREE.Plane[]; 
     const front = `
       float sideF = 1.0 - smoothstep(0.75, 0.95, abs(vWn.z));
       float lf = fract(vWp.z / uLayer);
-      float ridge = smoothstep(0.0, 0.35, lf) * smoothstep(1.0, 0.65, lf);
+      float ridge = smoothstep(0.0, 0.35, lf) * (1.0 - smoothstep(0.65, 1.0, lf));
       diffuseColor.rgb *= mix(1.0, 0.78 + 0.22 * ridge, sideF);
       float topF = smoothstep(0.85, 0.97, vWn.z);
       float dd = fract((vWp.x + vWp.y) * 0.7071 / 0.42);
-      diffuseColor.rgb *= mix(1.0, 0.92 + 0.08 * smoothstep(0.0, 0.5, dd) * smoothstep(1.0, 0.5, dd), topF);`;
+      diffuseColor.rgb *= mix(1.0, 0.92 + 0.08 * smoothstep(0.0, 0.5, dd) * (1.0 - smoothstep(0.5, 1.0, dd)), topF);`;
     const back = `
       vec2 g = abs(fract(vWp.xy / uSpacing) - 0.5);
       float gl = 1.0 - smoothstep(0.42 / uSpacing * 0.5, 0.42 / uSpacing, min(g.x, g.y));
