@@ -7,6 +7,7 @@ import * as jscad from '@jscad/modeling';
 import { bool, ExprError, num, type Scope } from './expr';
 import { fillText, normalizeText } from './text';
 import { splitParts, type SplitOptions, type SplitReport } from './split';
+import { analyzeMesh, meshFromPolygons } from '../mesh/mesh';
 import type { CadNode, ColorZone, Globals, ModelDef, Orientation, Shape2D, Value, Vec2, Vec3 } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -366,10 +367,10 @@ const HOLLOW_DIRS: [number, number, number][] = (() => {
  * Mit roof wird die Decke als 45°-Satteldach geformt, damit nichts frei in der Luft hängt.
  * Zu dünne Bereiche bleiben automatisch massiv.
  */
-export function hollowGeom(g: Geom, o: HollowOptions): { geom: Geom; hollowed: boolean } {
+export function hollowGeom(g: Geom, o: HollowOptions, jitter = 0.00731): { geom: Geom; hollowed: boolean } {
   // Ausgleich der Richtungs-Abtastung (cos 35° ≈ 0,82). Der krumme Zusatz verhindert, dass
   // Hohlraumflächen exakt auf anderen Modellflächen liegen (das erzeugt sonst Risse im Netz).
-  const t = o.wall / 0.8 + 0.00731;
+  const t = o.wall / 0.8 + jitter;
   let inner = g;
   for (const [x, y, z] of HOLLOW_DIRS) inner = B.intersect(inner, T.translate([x * t, y * t, z * t], g));
   if (!polysOf(inner).length) return { geom: g, hollowed: false };
@@ -424,6 +425,8 @@ export interface BuildOutput {
   /** Nur bei aktivierter Aufteilung: druckbare Segmente (+ Dübel) */
   pieces?: BuiltPiece[];
   splitReport?: SplitReport;
+  /** Hinweis, falls der automatische Hohlraum nicht gebaut wurde */
+  hollowNote?: string;
   /** Für den SCAD-Export: Drehung + Verschiebung auf das Druckbett */
   placement: { rx: number; ry: number; t: [number, number, number] };
 }
@@ -489,9 +492,25 @@ export function buildParts(
     const height = bb.max[2] - bb.min[2];
 
     // Automatischer Hohlraum (nur Grundkörper = erstes Teil; Beschriftungen/Einlagen bleiben massiv)
+    let hollowNote: string | undefined;
     if (hollow?.enabled && parts.length) {
-      const h = hollowGeom(parts[0].geom, hollow);
-      parts[0] = { ...parts[0], geom: h.geom };
+      // Ergebnis prüfen: nur übernehmen, wenn das Netz wasserdicht bleibt (sonst 2. Versuch, sonst massiv)
+      let done = false;
+      for (const jitter of [0.00731, 0.0613, 0.137]) {
+        const h = hollowGeom(parts[0].geom, hollow, jitter);
+        if (!h.hollowed) {
+          hollowNote = 'Zu dünn für einen Hohlraum – Teil bleibt massiv.';
+          done = true;
+          break;
+        }
+        if (analyzeMesh(meshFromPolygons(polysOf(h.geom))).manifold) {
+          parts[0] = { ...parts[0], geom: h.geom };
+          hollowNote = undefined;
+          done = true;
+          break;
+        }
+      }
+      if (!done) hollowNote = 'Hohlraum ließ sich hier nicht sauber bauen – Teil bleibt massiv (100 % druckbar).';
     }
 
     // Farbwechsel nach Höhe
@@ -535,6 +554,7 @@ export function buildParts(
       parts: parts.map((p) => ({ slot: p.slot, name: p.name, polys: polysOf(p.geom) })),
       pieces,
       splitReport,
+      hollowNote,
       placement: { rx: o.rx, ry: o.ry, t },
     };
   } catch (e) {

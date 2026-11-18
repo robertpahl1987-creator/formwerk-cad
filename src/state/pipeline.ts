@@ -56,6 +56,7 @@ export interface BuildResult {
   pieces?: PieceResult[];
   plates?: PlateResult[];
   splitReport?: SplitReport;
+  hollowNote?: string;
 }
 
 export interface PipelineSettings {
@@ -154,6 +155,7 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
     fitsBed: size[0] <= s.bedSize && size[1] <= s.bedSize && size[2] <= s.bedHeight,
     swaps,
     purgeGrams: swaps * 0.4,
+    hollowNote: out.hollowNote,
   };
 
   if (out.pieces) {

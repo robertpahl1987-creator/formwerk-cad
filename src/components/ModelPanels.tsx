@@ -285,6 +285,7 @@ export function MaterialPanel() {
               checked={state.settings.hollow.roof}
               onChange={(v) => dispatch({ type: 'settings', patch: { hollow: { ...state.settings.hollow, roof: v } } })}
             />
+            {state.build?.hollowNote && <p className="text-[12px] text-amber-300">⚠ {state.build.hollowNote}</p>}
             <p className="text-[11px] text-slate-500">Zu dünne Stellen bleiben automatisch massiv. Mit „✂ Schnitt“ in der Vorschau siehst du den Hohlraum. Gezielte Hohlräume kannst du unter „Frei bauen“ als Bauteil „Hohlraum“ setzen.</p>
           </>
         )}

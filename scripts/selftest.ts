@@ -62,6 +62,7 @@ function check(
       const after = ps.reduce((a, p) => a + p.stats.overhangArea, 0);
       console.log(`   Überhänge mehrteilig: ${(before / 100).toFixed(2)} → ${(after / 100).toFixed(2)} cm² (aufliegende Flächen ausgenommen)`);
     }
+    if (out.hollowNote) console.log(`   Hinweis: ${out.hollowNote}`);
     if (out.splitReport) console.log(`   Aufteilung: ${out.splitReport.counts.join('×')}, ${out.splitReport.joints} Verbinder ${out.splitReport.warnings.join(' | ')}`);
     console.log(`   (${Date.now() - t0} ms)`);
   } catch (e) {
