@@ -89,6 +89,8 @@ export interface ModelDef {
   root: CadNode[];
   source: 'template' | 'ai' | 'photo' | 'custom';
   templateId?: string;
+  /** Die Beschreibung, aus der das Modell entstanden ist (nachträglich bearbeitbar). */
+  prompt?: string;
 }
 
 export interface Orientation {

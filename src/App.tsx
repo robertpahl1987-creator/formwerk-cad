@@ -2,6 +2,7 @@ import { Component, useEffect, useMemo, useRef, useState, type PointerEvent as R
 import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
 import { ColorPanel, ExportPanel, Library, MaterialPanel, ParamPanel, PrintCheck, SplitPanel } from './components/ModelPanels';
+import { EditPanel } from './components/EditPanel';
 import { PhotoMode } from './components/PhotoMode';
 import { abortRef, TextMode } from './components/TextMode';
 import { cx, SliderRow, useMedia } from './components/ui';
@@ -126,6 +127,7 @@ function PanelContent() {
           )}
         </div>
       )}
+      <EditPanel />
       <ParamPanel />
       <PrintCheck />
       <SplitPanel />

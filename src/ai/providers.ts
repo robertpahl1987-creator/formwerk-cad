@@ -160,6 +160,20 @@ export async function generateWithAi(req: UserRequest, settings: AiSettings, opt
   return { model: v2.model!, provider: PROVIDER_LABEL[provider], raw };
 }
 
+/** Einzelner Aufruf beim gewählten Anbieter (Text, optional Bild). */
+export async function callProvider(
+  provider: Exclude<ProviderId, 'auto' | 'offline'>,
+  settings: AiSettings,
+  system: string,
+  user: string,
+  image?: Blob,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (provider === 'gemini') return callGemini(settings, system, user, image, signal);
+  if (provider === 'openai') return callOpenAI(settings, system, user, image, signal);
+  return callClaude(system, user, image, signal);
+}
+
 /** Lässt die KI ein Modell reparieren, das beim Bauen fehlschlägt. */
 export async function repairWithAi(model: ModelDef, buildError: string, settings: AiSettings, signal?: AbortSignal): Promise<ModelDef> {
   const provider = await resolveProvider(settings);

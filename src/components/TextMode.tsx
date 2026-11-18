@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { generateWithAi, PROVIDER_LABEL, resolveProvider } from '../ai/providers';
-import { applyMeasures, matchTemplate, parseMeasuresFromText, type Measures } from '../cad/templates';
-import { defaultValues } from '../cad/validate';
+import { generateFromText } from '../ai/generate';
+import { PROVIDER_LABEL, resolveProvider } from '../ai/providers';
+import type { Measures } from '../cad/templates';
+import { insideClaude } from '../platform/claude';
 import { useStore } from '../state/store';
 import { Button, NumberInput, Toggle } from './ui';
 
@@ -30,36 +31,23 @@ export function TextMode() {
 
   const set = (k: keyof Measures) => (v: number | undefined) => setMs((m) => ({ ...m, [k]: v }));
 
-  const offline = (measures: Measures, note?: string) => {
-    const tpl = matchTemplate(text);
-    const model = structuredClone(tpl.model);
-    const values = applyMeasures(model, defaultValues(model), measures);
-    dispatch({ type: 'setModel', model, values });
-    if (multi && tpl.id !== 'nameplate') dispatch({ type: 'zonesOn', on: true });
-    dispatch({ type: 'toast', kind: note ? 'info' : 'ok', text: note ?? `Vorlage „${tpl.name}“ mit deinen Maßen erstellt.` });
-  };
-
   const run = async () => {
-    const fromText = parseMeasuresFromText(text);
-    const measures: Measures = { ...fromText };
-    for (const [k, v] of Object.entries(ms)) if (v !== undefined) (measures as Record<string, number>)[k] = v;
-    const p = await resolveProvider(state.settings.ai);
-    if (p === 'offline') return offline(measures);
     const ac = new AbortController();
     abortRef.current = ac;
-    dispatch({ type: 'busy', text: `${PROVIDER_LABEL[p]} konstruiert …` });
+    dispatch({ type: 'busy', text: 'Modell wird erstellt …' });
     try {
-      const { model, provider: used } = await generateWithAi(
-        { text, measures: measures as Record<string, number | undefined>, tol: state.settings.tol, multicolor: multi },
-        state.settings.ai,
-        { signal: ac.signal, onStatus: (s) => dispatch({ type: 'busy', text: s }) },
-      );
-      const values = applyMeasures(model, defaultValues(model), measures);
-      dispatch({ type: 'setModel', model, values });
-      dispatch({ type: 'toast', kind: 'ok', text: `Modell von ${used} erstellt – alle Maße sind unten einstellbar.` });
-    } catch (e) {
+      const r = await generateFromText(text, ms, {
+        tol: state.settings.tol,
+        multicolor: multi,
+        ai: state.settings.ai,
+        signal: ac.signal,
+        onStatus: (t) => dispatch({ type: 'busy', text: t }),
+      });
+      dispatch({ type: 'setModel', model: r.model, values: r.values });
+      if (multi && !r.model.root.some((n) => n.type === 'color')) dispatch({ type: 'zonesOn', on: true });
+      dispatch({ type: 'toast', kind: r.note ? 'info' : 'ok', text: r.note ?? `Erstellt mit ${r.via} – Text und Maße kannst du unten jederzeit ändern.` });
+    } catch {
       if (ac.signal.aborted) dispatch({ type: 'toast', kind: 'info', text: 'Abgebrochen.' });
-      else offline(measures, `KI-Fehler: ${(e as Error).message.split('\n')[0]} – passende Vorlage verwendet.`);
     } finally {
       dispatch({ type: 'busy', text: null });
       abortRef.current = null;
@@ -123,6 +111,15 @@ export function TextMode() {
       <Button variant="primary" className="w-full h-11" onClick={run} disabled={!!state.busy || (!text.trim() && !Object.values(ms).some((v) => v !== undefined))}>
         ✨ Modell erstellen
       </Button>
+      {provider === PROVIDER_LABEL.offline && !insideClaude() && (
+        <button
+          onClick={() => dispatch({ type: 'showSettings', on: true })}
+          className="w-full text-left rounded-lg border border-[#4dabf7]/40 bg-[#4dabf7]/5 p-2.5 text-[12px] text-sky-200"
+        >
+          💡 Ohne KI-Schlüssel nutzt die App die eingebauten Vorlagen. Für freie Konstruktionen einen <b>kostenlosen Gemini-Key</b> in den Einstellungen
+          eintragen →
+        </button>
+      )}
       <p className="text-[11px] text-slate-500 -mt-2">
         KI: <span className="text-slate-300">{provider}</span> · Ergebnis ist immer parametrischer CAD-Code (keine geratenen Meshes).
       </p>

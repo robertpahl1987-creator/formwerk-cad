@@ -230,6 +230,7 @@ export function PhotoMode() {
         state.settings.ai,
         { image: blob, signal: ac.signal, onStatus: (s) => dispatch({ type: 'busy', text: s }) },
       );
+      model.prompt = desc || undefined;
       dispatch({ type: 'setModel', model });
       dispatch({ type: 'toast', kind: 'ok', text: `Modell aus Foto von ${provider} erstellt.` });
     } catch (e) {
