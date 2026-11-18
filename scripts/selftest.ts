@@ -253,7 +253,7 @@ await (async () => {
       const fm = freeToModel([
         mk({ id: 1, size: [80, 40, 4], pos: [0, 0, 2] }),
         mk({ id: 2, kind: 'import', name: 'Logo', size: [im.size[0] * 1.5, im.size[1] * 1.5, 3], pos: [0, 0, 4 + 1.5 - 0.3], rot: [0, 0, 18], e: { ref: im.id }, slot: 2 }),
-        mk({ id: 3, kind: 'import', name: 'Gravur', hole: true, size: [20, 20, 1.2], pos: [30, 0, 3.6], e: { ref: im.id } }),
+        mk({ id: 3, kind: 'import', name: 'Gravur', hole: true, size: [12, 12, 1.2], pos: [33, 0, 3.6], e: { ref: im.id } }),
       ])!;
       check(`Import ${label}: Platte mit eingraviertem Import`, fm, {});
       checks++;
