@@ -128,7 +128,7 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
   const bed = { size: s.bedSize, height: s.bedHeight };
   const out = buildParts(model, values, s.globals, s.orientation, s.zones, s.split.enabled ? { opts: s.split, bed } : undefined);
   const density = MATERIALS.find((m) => m.id === s.material)?.density ?? 1.24;
-  const mk = (slot: number, name: string, mesh: Mesh): PartResult => ({ slot, name, color: slotColor(s.palette, slot), mesh, stats: analyzeMesh(mesh, s.overhangDeg) });
+  const mk = (slot: number, name: string, mesh: Mesh): PartResult => ({ slot, name, color: slotColor(s.palette, slot), mesh, stats: analyzeMesh(mesh, s.overhangDeg, 0) });
 
   const parts: PartResult[] = out.parts.map((p) => mk(p.slot, p.name, meshFromPolygons(p.polys)));
   const total = analyzeMesh(mergeMeshes(parts.map((p) => p.mesh)), s.overhangDeg);

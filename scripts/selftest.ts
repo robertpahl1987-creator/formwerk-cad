@@ -45,7 +45,7 @@ function check(label: string, model: ModelDef, values: Record<string, Value>, op
     if (!out.pieces && out.parts.length > 1) {
       const ps = out.parts.map((p) => {
         const m = meshFromPolygons(p.polys);
-        return { mesh: m, stats: analyzeMesh(m) };
+        return { mesh: m, stats: analyzeMesh(m, 45, 0) };
       });
       const before = ps.reduce((a, p) => a + p.stats.overhangArea, 0);
       suppressSupportedOverhangs(ps);

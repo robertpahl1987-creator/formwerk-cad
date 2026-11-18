@@ -253,7 +253,8 @@ export interface MeshStats {
   bedContactArea: number;
 }
 
-export function analyzeMesh(m: Mesh, overhangDeg = 45): MeshStats {
+/** bedZ: Höhe des Druckbetts (Standard: tiefster Punkt dieses Netzes). */
+export function analyzeMesh(m: Mesh, overhangDeg = 45, bedZ?: number): MeshStats {
   const { pos, tri } = m;
   const n = pos.length / 3;
   const tcount = tri.length / 3;
@@ -304,7 +305,7 @@ export function analyzeMesh(m: Mesh, overhangDeg = 45): MeshStats {
     bed = 0;
   const flags = new Uint8Array(tcount);
   const cosLim = Math.cos((overhangDeg * Math.PI) / 180);
-  const zBed = min[2] + 0.05;
+  const zBed = (bedZ ?? min[2]) + 0.05;
   for (let t = 0, f = 0; t < tri.length; t += 3, f++) {
     const a = 3 * tri[t],
       b = 3 * tri[t + 1],
