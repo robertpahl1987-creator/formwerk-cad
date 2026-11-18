@@ -11,10 +11,12 @@ import type { ModelDef } from '../cad/types';
 import { capability } from '../platform/claude';
 import { repairPrompt, systemPrompt, userPrompt, type UserRequest } from './prompt';
 
-export type ProviderId = 'auto' | 'claude' | 'gemini' | 'openai' | 'offline';
+export type ProviderId = 'auto' | 'anthropic' | 'claude' | 'gemini' | 'openai' | 'offline';
 
 export interface AiSettings {
   provider: ProviderId;
+  anthropicKey: string;
+  anthropicModel: string;
   geminiKey: string;
   geminiModel: string;
   openaiKey: string;
@@ -23,6 +25,8 @@ export interface AiSettings {
 
 export const DEFAULT_AI: AiSettings = {
   provider: 'auto',
+  anthropicKey: '', // ← Claude-API-Key (console.anthropic.com) – in der App unter „Einstellungen“
+  anthropicModel: 'claude-sonnet-5-5',
   geminiKey: '', // ← Hier oder in der App unter „Einstellungen“ den Gemini-API-Key eintragen
   geminiModel: 'gemini-2.5-flash',
   openaiKey: '',
@@ -33,6 +37,7 @@ export async function resolveProvider(s: AiSettings): Promise<Exclude<ProviderId
   if (s.provider !== 'auto') return s.provider;
   // In Claude sind externe API-Aufrufe gesperrt → dort Claude selbst nutzen
   if (await capability('sample')) return 'claude';
+  if (s.anthropicKey?.trim()) return 'anthropic';
   if (s.geminiKey.trim()) return 'gemini';
   if (s.openaiKey.trim()) return 'openai';
   return 'offline';
@@ -40,7 +45,8 @@ export async function resolveProvider(s: AiSettings): Promise<Exclude<ProviderId
 
 export const PROVIDER_LABEL: Record<ProviderId, string> = {
   auto: 'Automatisch',
-  claude: 'Claude (integriert)',
+  anthropic: 'Claude (API-Key)',
+  claude: 'Claude (in Claude.ai)',
   gemini: 'Google Gemini',
   openai: 'OpenAI',
   offline: 'Offline (Vorlagen)',
@@ -71,6 +77,36 @@ async function callGemini(s: AiSettings, system: string, user: string, image: Bl
   if (!res.ok) throw new Error(`Gemini: ${j?.error?.message ?? res.statusText}`);
   const text = j?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
   if (!text) throw new Error('Gemini hat keine Antwort geliefert.');
+  return text;
+}
+
+async function callAnthropic(s: AiSettings, system: string, user: string, image: Blob | undefined, signal?: AbortSignal): Promise<string> {
+  if (!s.anthropicKey?.trim()) throw new Error('Kein Claude-API-Key hinterlegt (Einstellungen).');
+  const content: unknown[] = [];
+  if (image) content.push({ type: 'image', source: { type: 'base64', media_type: image.type || 'image/jpeg', data: await blobToBase64(image) } });
+  content.push({ type: 'text', text: user });
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    signal,
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': s.anthropicKey.trim(),
+      'anthropic-version': '2023-06-01',
+      // Erlaubt den direkten Aufruf aus dem Browser/der App mit dem eigenen Schlüssel
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: s.anthropicModel || 'claude-sonnet-5-5',
+      max_tokens: 16000,
+      system,
+      messages: [{ role: 'user', content }],
+    }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Claude: ${j?.error?.message ?? res.statusText}`);
+  const text = (j?.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('');
+  if (!text) throw new Error('Claude hat keine Antwort geliefert.');
+  if (j?.stop_reason === 'max_tokens') throw new Error('Antwort zu lang – bitte die Beschreibung vereinfachen.');
   return text;
 }
 
@@ -137,9 +173,8 @@ export async function generateWithAi(req: UserRequest, settings: AiSettings, opt
   if (provider === 'offline') throw new Error('offline');
   const system = systemPrompt();
   const call = (user: string, img?: Blob) => {
-    if (provider === 'gemini') return callGemini(settings, system, user, img, opts.signal);
-    if (provider === 'openai') return callOpenAI(settings, system, user, img, opts.signal);
-    return callClaude(system, user, img, opts.signal, (t) => opts.onStatus?.(`Claude schreibt … (${t.length} Zeichen)`));
+    if (provider === 'claude') return callClaude(system, user, img, opts.signal, (t) => opts.onStatus?.(`Claude schreibt … (${t.length} Zeichen)`));
+    return callProvider(provider, settings, system, user, img, opts.signal);
   };
   opts.onStatus?.(`${PROVIDER_LABEL[provider]} konstruiert das Modell …`);
   let raw = await call(userPrompt(req), opts.image);
@@ -171,6 +206,7 @@ export async function callProvider(
 ): Promise<string> {
   if (provider === 'gemini') return callGemini(settings, system, user, image, signal);
   if (provider === 'openai') return callOpenAI(settings, system, user, image, signal);
+  if (provider === 'anthropic') return callAnthropic(settings, system, user, image, signal);
   return callClaude(system, user, image, signal);
 }
 
@@ -181,12 +217,7 @@ export async function repairWithAi(model: ModelDef, buildError: string, settings
   const system = systemPrompt();
   const json = JSON.stringify({ name: model.name, description: model.description, params: model.params, root: model.root });
   const user = `Dieses Modell erzeugt beim Bauen den Fehler: "${buildError}". Behebe den Fehler, behalte die Parameter bei und antworte nur mit dem korrigierten JSON.\n\n${json}`;
-  const raw =
-    provider === 'gemini'
-      ? await callGemini(settings, system, user, undefined, signal)
-      : provider === 'openai'
-        ? await callOpenAI(settings, system, user, undefined, signal)
-        : await callClaude(system, user, undefined, signal);
+  const raw = await callProvider(provider, settings, system, user, undefined, signal);
   const v = validateModel(extractJson(raw), model.source);
   if (!v.ok) throw new Error(`Reparatur ungültig: ${v.errors.slice(0, 4).join('; ')}`);
   return v.model!;

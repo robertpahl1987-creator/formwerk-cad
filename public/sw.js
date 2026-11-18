@@ -1,5 +1,5 @@
 /* Formwerk CAD – Service Worker: App-Shell offline, Netzwerk zuerst für HTML */
-const VERSION = 'formwerk-cad-v1';
+const VERSION = 'formwerk-cad-v2';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -20,7 +20,7 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   // KI-APIs nie cachen
-  if (/generativelanguage\.googleapis\.com|api\.openai\.com/.test(url.hostname)) return;
+  if (/generativelanguage\.googleapis\.com|api\.openai\.com|api\.anthropic\.com/.test(url.hostname)) return;
   if (req.mode === 'navigate') {
     e.respondWith(
       fetch(req)

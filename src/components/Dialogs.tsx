@@ -45,7 +45,7 @@ export function SettingsDialog() {
         <label className="block">
           <span className="text-[13px] text-slate-300">Anbieter</span>
           <select value={ai.provider} onChange={(e) => setAi({ provider: e.target.value as ProviderId })} className={field}>
-            {(['auto', 'gemini', 'openai', 'claude', 'offline'] as ProviderId[]).map((p) => (
+            {(['auto', 'anthropic', 'gemini', 'openai', 'claude', 'offline'] as ProviderId[]).map((p) => (
               <option key={p} value={p}>
                 {PROVIDER_LABEL[p]}
               </option>
@@ -53,6 +53,18 @@ export function SettingsDialog() {
           </select>
         </label>
         {insideClaude() && <p className="text-[12px] text-[#3ddc84]">In Claude geöffnet: „Automatisch“ nutzt Claude direkt – kein API-Key nötig.</p>}
+        <label className="block">
+          <span className="text-[13px] text-slate-300">Claude API-Key (Anthropic)</span>
+          <input type="password" autoComplete="off" value={ai.anthropicKey} onChange={(e) => setAi({ anthropicKey: e.target.value })} placeholder="sk-ant-… (console.anthropic.com)" className={field} />
+        </label>
+        <label className="block">
+          <span className="text-[13px] text-slate-300">Claude-Modell</span>
+          <select value={ai.anthropicModel} onChange={(e) => setAi({ anthropicModel: e.target.value })} className={field}>
+            <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (empfohlen)</option>
+            <option value="claude-opus-5-5">Claude Opus 5.5 (stärkste Konstruktion)</option>
+            <option value="claude-haiku-5-5">Claude Haiku 5.5 (schnell, günstig)</option>
+          </select>
+        </label>
         <label className="block">
           <span className="text-[13px] text-slate-300">Google Gemini API-Key</span>
           <input type="password" autoComplete="off" value={ai.geminiKey} onChange={(e) => setAi({ geminiKey: e.target.value })} placeholder="AIza… (aistudio.google.com/apikey)" className={field} />

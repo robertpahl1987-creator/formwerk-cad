@@ -116,8 +116,8 @@ export function TextMode() {
           onClick={() => dispatch({ type: 'showSettings', on: true })}
           className="w-full text-left rounded-lg border border-[#4dabf7]/40 bg-[#4dabf7]/5 p-2.5 text-[12px] text-sky-200"
         >
-          💡 Ohne KI-Schlüssel nutzt die App die eingebauten Vorlagen. Für freie Konstruktionen einen <b>kostenlosen Gemini-Key</b> in den Einstellungen
-          eintragen →
+          💡 Ohne KI-Schlüssel nutzt die App die eingebauten Vorlagen. Für freie Konstruktionen einen <b>Claude-API-Key</b> (oder kostenlosen Gemini-Key) in den
+          Einstellungen eintragen →
         </button>
       )}
       <p className="text-[11px] text-slate-500 -mt-2">
