@@ -23,7 +23,23 @@ function check(label: string, model: ModelDef, values: Record<string, Value>, op
         checks++;
         const s = analyzeMesh(meshFromPolygons(p.polys));
         const okk = s.manifold && s.volume > 0;
-        if (!okk) fails++;
+        if (!okk) {
+          fails++;
+          // Diagnose: erste Fehlkanten mit Koordinaten
+          const m = meshFromPolygons(p.polys);
+          const n = m.pos.length / 3;
+          const dir = new Map<number, number>();
+          for (let t = 0; t < m.tri.length; t += 3) for (let e = 0; e < 3; e++) { const k = m.tri[t + e] * n + m.tri[t + ((e + 1) % 3)]; dir.set(k, (dir.get(k) ?? 0) + 1); }
+          let shown = 0;
+          for (const [k, c] of dir) {
+            const a = Math.floor(k / n), b = k % n;
+            if (c > 1 || !dir.has(b * n + a)) {
+              const P = (i: number) => `(${[0, 1, 2].map((j) => m.pos[3 * i + j].toFixed(3)).join(',')})`;
+              console.log(`     Kante ${P(a)}→${P(b)} ×${c}, Gegenrichtung ×${dir.get(b * n + a) ?? 0}`);
+              if (++shown >= 4) break;
+            }
+          }
+        }
         console.log(`${okk ? '✓' : '✗'} ${label} › ${g.label} › ${p.name} (Slot ${p.slot}): ${s.triangles} Dreiecke, ${s.volume.toFixed(1)} mm³, offen ${s.openEdges}, nicht-manifold ${s.nonManifoldEdges}`);
       }
     if (out.splitReport) console.log(`   Aufteilung: ${out.splitReport.counts.join('×')}, ${out.splitReport.joints} Verbinder ${out.splitReport.warnings.join(' | ')}`);

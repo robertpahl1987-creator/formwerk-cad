@@ -41,7 +41,73 @@ export function meshFromPolygons(polys: number[][][]): Mesh {
       if (a !== b && b !== c && a !== c) tri.push(a, b, c);
     }
   }
-  return repairTJunctions({ pos: new Float64Array(pos), tri: new Uint32Array(tri) });
+  let m: Mesh = { pos: new Float64Array(pos), tri: new Uint32Array(tri) };
+  for (let pass = 0; pass < 3; pass++) {
+    m = repairTJunctions(m);
+    const cleaned = cleanTriangles(m);
+    if (cleaned.tri.length === m.tri.length) break;
+    m = cleaned;
+  }
+  return m;
+}
+
+/**
+ * Entfernt Dreiecke ohne Fläche (alle Punkte auf einer Linie), doppelte Dreiecke
+ * und Null-Dicke-„Flossen“ (gleiches Dreieck in beiden Richtungen). Solche Reste
+ * entstehen bei Booleschen Operationen und würden als Fehlkanten zählen.
+ */
+export function cleanTriangles(m: Mesh): Mesh {
+  const { pos, tri } = m;
+  const keyOf = (a: number, b: number, c: number) => {
+    const s = [a, b, c].sort((x, y) => x - y);
+    return `${s[0]},${s[1]},${s[2]}`;
+  };
+  // Orientierung kanonisch: Rotation so, dass kleinster Index vorne steht
+  const orient = (a: number, b: number, c: number) => {
+    if (a < b && a < c) return `${a},${b},${c}`;
+    if (b < a && b < c) return `${b},${c},${a}`;
+    return `${c},${a},${b}`;
+  };
+  const count = new Map<string, { n: number; dirs: Map<string, number> }>();
+  const keep: boolean[] = [];
+  for (let t = 0; t < tri.length; t += 3) {
+    const a = tri[t], b = tri[t + 1], c = tri[t + 2];
+    const ux = pos[3 * b] - pos[3 * a], uy = pos[3 * b + 1] - pos[3 * a + 1], uz = pos[3 * b + 2] - pos[3 * a + 2];
+    const vx = pos[3 * c] - pos[3 * a], vy = pos[3 * c + 1] - pos[3 * a + 1], vz = pos[3 * c + 2] - pos[3 * a + 2];
+    const cr = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+    const lmax = Math.max(Math.hypot(ux, uy, uz), Math.hypot(vx, vy, vz), 1e-12);
+    const degenerate = cr / lmax < 1e-7; // Höhe < 0,1 µm
+    keep.push(!degenerate);
+    if (degenerate) continue;
+    const k = keyOf(a, b, c);
+    let e = count.get(k);
+    if (!e) count.set(k, (e = { n: 0, dirs: new Map() }));
+    e.n++;
+    const o = orient(a, b, c);
+    e.dirs.set(o, (e.dirs.get(o) ?? 0) + 1);
+  }
+  const out: number[] = [];
+  const emitted = new Map<string, number>();
+  for (let t = 0, i = 0; t < tri.length; t += 3, i++) {
+    if (!keep[i]) continue;
+    const a = tri[t], b = tri[t + 1], c = tri[t + 2];
+    const k = keyOf(a, b, c);
+    const e = count.get(k)!;
+    if (e.n > 1) {
+      // Paare entgegengesetzter Richtung heben sich auf; Rest einmal behalten
+      const dirs = [...e.dirs.values()];
+      const net = dirs.length === 2 ? Math.abs(dirs[0] - dirs[1]) : dirs[0];
+      const o = orient(a, b, c);
+      const mine = e.dirs.get(o)!;
+      const other = dirs.length === 2 ? dirs.find((_, j) => [...e.dirs.keys()][j] !== o)! : 0;
+      const allowed = mine > other ? Math.min(1, net) : 0;
+      const done = emitted.get(k + '|' + o) ?? 0;
+      if (done >= allowed) continue;
+      emitted.set(k + '|' + o, done + 1);
+    }
+    out.push(a, b, c);
+  }
+  return { pos, tri: new Uint32Array(out) };
 }
 
 function edgeKey(a: number, b: number, n: number) {
