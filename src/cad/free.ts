@@ -203,12 +203,15 @@ export function partShape(p: FreePart): CadNode {
       const d = num(e.d, 4) + 0.3,
         L = num(e.L, 10),
         k = num(e.k, 0) > num(e.d, 4) ? num(e.k, 0) + 0.3 : 0;
-      const kids: CadNode[] = [cylZ(d / 2, -L / 2 - HOLE_EPS, L / 2 + (k ? 0 : HOLE_EPS))];
-      if (k) {
-        const s = Math.min((k - d) / 2, L);
-        kids.push(tr([0, 0, L / 2 - s], [{ type: 'cylinder', r1: r3(d / 2), r2: r3(k / 2), h: r3(s) }]));
-        kids.push(cylZ(k / 2, L / 2 - 0.01, L / 2 + 1));
-      }
+      if (!k) return cylZ(d / 2, -L / 2 - HOLE_EPS, L / 2 + HOLE_EPS);
+      // Schaft endet innerhalb der Senkung, Kopffreiraum setzt genau an der Senkung an
+      // → keine hauchdünnen Überlappungen, die offene Kanten erzeugen würden.
+      const s = Math.min((k - d) / 2, L);
+      const kids: CadNode[] = [
+        cylZ(d / 2, -L / 2 - HOLE_EPS, L / 2 - s / 2),
+        tr([0, 0, L / 2 - s], [{ type: 'cylinder', r1: r3(d / 2), r2: r3(k / 2), h: r3(s) }]),
+        cylZ(k / 2, L / 2, L / 2 + 1),
+      ];
       return { type: 'union', children: kids };
     }
     case 'scharnier':

@@ -166,7 +166,7 @@ export function repairTJunctions(m: Mesh, maxPass = 4): Mesh {
       const c0 = [Math.floor((lo[0] - minX) / cs), Math.floor((lo[1] - minY) / cs), Math.floor((lo[2] - minZ) / cs)];
       const c1 = [Math.floor((hi[0] - minX) / cs), Math.floor((hi[1] - minY) / cs), Math.floor((hi[2] - minZ) / cs)];
       const found: { i: number; t: number }[] = [];
-      const eps = 1e-3; // 1 µm: Schnittpunkte aus Booleschen Operationen liegen nicht immer exakt auf der Kante
+      const eps = 2e-4;
       const ncell = (c1[0] - c0[0] + 1) * (c1[1] - c0[1] + 1) * (c1[2] - c0[2] + 1);
       const test = (i: number) => {
         if (i === a || i === b) return;
