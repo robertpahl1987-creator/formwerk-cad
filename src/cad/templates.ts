@@ -487,7 +487,7 @@ export function matchTemplate(text: string): Template {
 
 const WORDS: Record<string, number> = { ein: 1, eine: 1, einem: 1, zwei: 2, drei: 3, vier: 4, 'fünf': 5, fuenf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9, zehn: 10, elf: 11, 'zwölf': 12, zwoelf: 12 };
 const NUM = String.raw`(\d+(?:[.,]\d+)?)`;
-const UNIT = String.raw`\s*(mm|cm|m)?\b`;
+const UNIT = String.raw`\s*(?:(mm|cm|m)\b)?`;
 
 /**
  * Liest Maße aus Freitext, z. B. „120 x 80 x 50 mm“, „25 cm lang“, „Höhe: 8 cm“, „Ø 8“, „M5“,
