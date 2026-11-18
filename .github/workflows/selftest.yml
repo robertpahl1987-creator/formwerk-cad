@@ -4,6 +4,8 @@ on:
   push:
     branches-ignore: [main]
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,7 +17,7 @@ jobs:
       - run: npm install
       - run: npm run selftest
       - run: npm run build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist
+      - name: tmp dist branch
+        run: |
+          cd dist && git init -q && git checkout -q -b preview-dist && git add -A && git -c user.name=ci -c user.email=ci@x commit -qm dist
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" preview-dist
