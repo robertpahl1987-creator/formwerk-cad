@@ -1,9 +1,11 @@
 import { Component, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
-import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, OptimizePanel, ParamPanel, PrintCheck, SplitPanel, ToleranceCalibration } from './components/ModelPanels';
+import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, OptimizePanel, ParamPanel, PrintCheck, SaveToMyParts, SplitPanel, ToleranceCalibration } from './components/ModelPanels';
 import { ContextMenu } from './components/ContextMenu';
 import { AssemblyPanel, PlateBar } from './components/AssemblyPanel';
+import { PlateJobPanel, usePacked } from './components/PlateJobPanel';
+import { plateJob, usePlateJob } from './state/plateJob';
 import { asmSettings, assembledParts } from './state/assemblyBuild';
 import { EditPanel } from './components/EditPanel';
 import { freeBus, useFreeSnapshot } from './state/freeBus';
@@ -302,6 +304,8 @@ function PanelContent() {
           <PrintCheck />
           <OptimizePanel />
           <ExportPanel />
+          <SaveToMyParts />
+          <PlateJobPanel />
           <AssemblyPanel />
           <div className="px-4 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Erweitert (optional)</div>
           <MaterialPanel />
@@ -316,6 +320,7 @@ function PanelContent() {
 
 function ViewToggles() {
   const { state, dispatch } = useStore();
+  const job = usePlateJob();
   const v = state.view;
   const t = (k: 'dims' | 'xray' | 'section' | 'overhangs', label: string) => (
     <button
@@ -332,6 +337,11 @@ function ViewToggles() {
         {t('xray', '🩻 X-Ray')}
         {t('section', '✂ Schnitt')}
         {t('overhangs', '⚠ Überhänge')}
+        {job.show && job.items.length > 0 && (
+          <button onClick={() => plateJob.show(false)} className="h-8 px-2.5 rounded-lg border text-[12px] backdrop-blur bg-[#00ae42]/20 border-[#00ae42] text-white">
+            🧲 Sammelplatte ✕
+          </button>
+        )}
         {state.asm.items.length > 0 && (
           <button
             onClick={() => dispatch({ type: 'asmView', view: state.asm.view === 'off' ? 'assembled' : state.asm.view === 'assembled' ? 'exploded' : 'off' })}
@@ -560,20 +570,28 @@ export function App() {
       return null;
     }
   }, [asmOn, state.asm.items, state.asm.view, s, importVer]);
+  const job = usePlateJob();
+  const packed = usePacked();
+  const jobDisplay = useMemo(() => {
+    if (!job.show || !packed?.plates.length) return null;
+    const pl = packed.plates[Math.min(job.plate, packed.plates.length - 1)];
+    return pl.objects.flatMap((o) => o.parts);
+  }, [job.show, job.plate, packed]);
   const display = useMemo(() => {
+    if (jobDisplay) return jobDisplay;
     if (asmDisplay) return asmDisplay;
     if (!b) return null;
     if (b.plates && state.view.plate > 0) return b.plates.find((p) => p.index === state.view.plate)?.items.flatMap((it) => it.parts) ?? null;
     if (b.pieces) return explodedParts(b.pieces);
     return b.parts;
-  }, [b, state.view.plate, asmDisplay]);
+  }, [b, state.view.plate, asmDisplay, jobDisplay]);
   // Frei bauen: Teile in der 3D-Ansicht anklickbar machen
   const freeSnap = useFreeSnapshot();
   const overlay = useMemo(() => {
-    if (asmOn || state.mode !== 'free' || state.model?.templateId !== 'frei' || !b || b.pieces || state.orientation.rx || state.orientation.ry) return null;
+    if (jobDisplay || asmOn || state.mode !== 'free' || state.model?.templateId !== 'frei' || !b || b.pieces || state.orientation.rx || state.orientation.ry) return null;
     return { parts: freeSnap.parts, sel: freeSnap.sel, offset: b.placement.t };
-  }, [state.mode, state.model, b, freeSnap, state.orientation, asmOn]);
-  const viewKey = state.modelVersion * 100 + state.view.plate + 1 + (b?.pieces ? 50 : 0) + (asmOn ? 30 + (state.asm.view === 'exploded' ? 10 : 0) + state.asm.items.length * 1000 : 0);
+  }, [state.mode, state.model, b, freeSnap, state.orientation, asmOn, jobDisplay]);
+  const viewKey = state.modelVersion * 100 + state.view.plate + 1 + (b?.pieces ? 50 : 0) + (asmOn ? 30 + (state.asm.view === 'exploded' ? 10 : 0) + state.asm.items.length * 1000 : 0) + (jobDisplay ? 70 + job.plate : 0);
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[#0d1117] text-slate-200 overflow-hidden">

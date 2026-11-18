@@ -17,6 +17,7 @@ import { runPipeline } from '../src/state/pipeline';
 import { DEFAULT_HOLLOW } from '../src/cad/build';
 import { PROFILES } from '../src/mesh/mesh';
 import { optimizePrint } from '../src/mesh/optimize';
+import { packPlates } from '../src/state/plateJob';
 import { lithoSoup, DEFAULT_LITHO } from '../src/photo/litho';
 import { weldTriangles } from '../src/mesh/importMesh';
 import { parseMeasuresFromText, applyMeasures, matchTemplate } from '../src/cad/templates';
@@ -334,6 +335,32 @@ for (const arc of [0, 180]) {
   const ok = st.manifold && st.volume > 0;
   if (!ok) fails++;
   console.log(`${ok ? '✓' : '✗'} Lithophanie ${arc ? `gebogen ${arc}°` : 'flach'}: ${st.triangles} Dreiecke, ${m.size.map((v) => v.toFixed(1)).join(' × ')} mm, Volumen ${st.volume.toFixed(0)} mm³, offen ${st.openEdges}, nicht-manifold ${st.nonManifoldEdges}`);
+}
+
+// ---------------------------------------------------------------- Sammelplatte
+{
+  checks++;
+  const tp = (id: string) => TEMPLATES.find((x) => x.id === id)!.model;
+  const S = { globals: { tol: 0.2, fase: true }, orientation: { rx: 0, ry: 0 }, zones: null, palette: [{ slot: 1, name: 'A', color: '#fff' }], material: 'pla', profile: PROFILES.standard, layer: 0.2, overhangDeg: 45, bedSize: 256, bedHeight: 256, split: { ...DEFAULT_SPLIT, enabled: false } };
+  const res = packPlates([
+    { id: 1, name: 'Haken', model: tp('hook'), values: defaultValues(tp('hook')), copies: 6 },
+    { id: 2, name: 'Box', model: tp('box'), values: defaultValues(tp('box')), copies: 3 },
+    { id: 3, name: 'Hülse', model: tp('spacer'), values: defaultValues(tp('spacer')), copies: 10 },
+  ], S);
+  let overlap = 0, outside = 0, n = 0;
+  for (const pl of res.plates) {
+    const boxes = pl.objects.map((o) => {
+      const mn = [Infinity, Infinity], mx = [-Infinity, -Infinity];
+      for (const p of o.parts) for (let i = 0; i < p.mesh.pos.length; i += 3) for (let k = 0; k < 2; k++) { mn[k] = Math.min(mn[k], p.mesh.pos[i + k]); mx[k] = Math.max(mx[k], p.mesh.pos[i + k]); }
+      return { mn, mx };
+    });
+    n += boxes.length;
+    for (const b of boxes) if (b.mn[0] < -128 || b.mn[1] < -128 || b.mx[0] > 128 || b.mx[1] > 128) outside++;
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) if ([0, 1].every((k) => boxes[i].mn[k] < boxes[j].mx[k] - 0.01 && boxes[j].mn[k] < boxes[i].mx[k] - 0.01)) overlap++;
+  }
+  const ok = n === 19 && !overlap && !outside;
+  if (!ok) fails++;
+  console.log(`${ok ? '✓' : '✗'} Sammelplatte: ${n} Objekte auf ${res.plates.length} Platte(n), Überlappungen ${overlap}, außerhalb ${outside}`);
 }
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);

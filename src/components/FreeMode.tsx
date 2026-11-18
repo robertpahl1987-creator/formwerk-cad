@@ -397,6 +397,23 @@ export function FreeMode() {
       lastKey.current = '';
       return;
     }
+    if (c.type === 'insert') {
+      if (!c.parts.length) return;
+      // Hüllbox der einzufügenden Teile → rechts neben das Vorhandene setzen, auf das Bett stellen
+      const boxes = c.parts.map(worldBox);
+      const mn = [0, 1, 2].map((k) => Math.min(...boxes.map((b) => b.min[k])));
+      const mx = [0, 1, 2].map((k) => Math.max(...boxes.map((b) => b.max[k])));
+      const bodies = parts.filter((x) => !x.hole);
+      const targetX = bodies.length ? Math.max(...bodies.map((b) => worldBox(b).max[0])) + 8 : -(mx[0] - mn[0]) / 2;
+      const d = [targetX - mn[0], -(mn[1] + mx[1]) / 2, -mn[2]];
+      const g = c.parts.length > 1 ? nextGroup() : undefined;
+      let next = data.next;
+      const added = c.parts.map((p) => ({ ...structuredClone(p), id: next++, group: g, pos: [round(p.pos[0] + d[0]), round(p.pos[1] + d[1]), round(p.pos[2] + d[2])] as FreePart['pos'] }));
+      commit({ parts: [...parts, ...added], next });
+      setSels(added.map((p) => p.id));
+      dispatch({ type: 'toast', kind: 'ok', text: `„${c.name}“ eingefügt${g ? ` (${added.length} Teile, zusammengefügt)` : ''}` });
+      return;
+    }
     if (c.type === 'load') {
       undoStack.current = [];
       setData({ parts: c.parts.map(withOutline), next: c.parts.reduce((m, p) => Math.max(m, p.id), 0) + 1 });

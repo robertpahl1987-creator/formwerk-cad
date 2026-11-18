@@ -7,6 +7,11 @@ import { stlBinary, stlPerColorZip, threeMf, zipFiles, type ExportObject, type E
 import { bestOrientation, MATERIALS, mergeMeshes, PATTERN_LABEL, PROFILES, rotateMesh, type InfillPattern, type PrintProfile } from '../mesh/mesh';
 import { saveFile } from '../platform/download';
 import { optimizePrint, type OptimizePlan } from '../mesh/optimize';
+import { myParts, useMyParts, type MyPart } from '../state/myParts';
+import { freeBus } from '../state/freeBus';
+import type { FreePart } from '../cad/free';
+import { hashId, registerImported, weldTriangles } from '../mesh/importMesh';
+import { runPipeline } from '../state/pipeline';
 import type { PartResult } from '../state/pipeline';
 import { useStore } from '../state/store';
 import { Button, cx, NumberInput, Section, SliderRow, Stat, Toggle } from './ui';
@@ -28,6 +33,9 @@ const hm = (min: number) => `${Math.floor(min / 60)} h ${String(Math.round(min %
 export function Library() {
   const { dispatch } = useStore();
   return (
+    <>
+    <MyPartsPanel />
+    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 mb-2">Vorlagen</div>
     <div className="grid grid-cols-2 gap-2">
       {TEMPLATES.map((t) => (
         <button
@@ -44,6 +52,7 @@ export function Library() {
         </button>
       ))}
     </div>
+    </>
   );
 }
 
@@ -798,6 +807,114 @@ export function ToleranceCalibration({ compact }: { compact?: boolean }) {
           Testdruck laden
         </Button>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Meine Teile
+export function SaveToMyParts() {
+  const { state, dispatch } = useStore();
+  const m = state.model;
+  if (!m) return null;
+  const save = () => {
+    const name = window.prompt('Name für „Meine Teile“:', m.name === 'Eigenes Modell' ? '' : m.name);
+    if (name === null) return;
+    try {
+      myParts.add(name, m, state.values);
+      dispatch({ type: 'toast', kind: 'ok', text: `„${name || m.name}“ gespeichert – zu finden unter Erstellen → Vorlagen → Meine Teile` });
+    } catch (e) {
+      dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
+    }
+  };
+  return (
+    <div className="px-4 pt-3">
+      <Button className="w-full h-9 text-[12.5px]" onClick={save}>
+        ⭐ In „Meine Teile“ speichern
+      </Button>
+    </div>
+  );
+}
+
+export function MyPartsPanel() {
+  const { state, dispatch } = useStore();
+  const list = useMyParts();
+  const [confirm, setConfirm] = useState<string | null>(null);
+  if (!list.length)
+    return <p className="text-[12px] text-slate-500 mb-3">⭐ Meine Teile: noch leer. Speichere ein fertiges Teil in Schritt 3 mit „In ‚Meine Teile‘ speichern“, dann kannst du es hier jederzeit öffnen oder in neue Projekte einfügen.</p>;
+  const open = (p: MyPart) => {
+    dispatch({ type: 'setModel', model: structuredClone(p.model), values: { ...p.values } });
+    if (p.model.templateId === 'frei') {
+      freeBus.send({ type: 'load', parts: (p.model.freeParts as FreePart[]) ?? [] });
+      dispatch({ type: 'mode', mode: 'free' });
+      dispatch({ type: 'step', step: 'create' });
+    }
+    dispatch({ type: 'toast', kind: 'ok', text: `„${p.name}“ geöffnet` });
+  };
+  const insert = (p: MyPart) => {
+    dispatch({ type: 'busy', text: 'Füge ein …' });
+    setTimeout(async () => {
+      try {
+        let parts: FreePart[];
+        if (p.model.templateId === 'frei' && p.model.freeParts?.length) parts = structuredClone(p.model.freeParts as FreePart[]);
+        else {
+          // Fertiges Modell als festes Teil (Netz) übernehmen
+          const s = state.settings;
+          const r = runPipeline(p.model, p.values, {
+            globals: { tol: s.tol, fase: s.fase },
+            orientation: { rx: 0, ry: 0 },
+            zones: null,
+            palette: s.palette,
+            material: s.material,
+            profile: s.profile,
+            layer: s.layer,
+            overhangDeg: s.overhangDeg,
+            bedSize: s.bedSize,
+            bedHeight: s.bedHeight,
+            split: { ...s.split, enabled: false },
+          });
+          const mm = mergeMeshes(r.parts.map((x) => x.mesh));
+          const soup = new Float64Array(mm.tri.length * 3);
+          for (let i = 0; i < mm.tri.length; i++) for (let k = 0; k < 3; k++) soup[i * 3 + k] = mm.pos[mm.tri[i] * 3 + k];
+          const w = weldTriangles(soup);
+          const im = { id: hashId(w.mesh), name: p.name, mesh: w.mesh, size: w.size };
+          await registerImported(im);
+          parts = [{ id: 1, kind: 'import', name: p.name.slice(0, 30), hole: false, slot: 1, pos: [0, 0, w.size[2] / 2], rot: [0, 0, 0], size: w.size, e: { ref: im.id, welded: true }, lock: true }];
+        }
+        dispatch({ type: 'mode', mode: 'free' });
+        dispatch({ type: 'step', step: 'create' });
+        setTimeout(() => freeBus.send({ type: 'insert', parts, name: p.name }), 50);
+      } catch (e) {
+        dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
+      } finally {
+        dispatch({ type: 'busy', text: null });
+      }
+    }, 30);
+  };
+  return (
+    <div className="mb-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 mb-2">⭐ Meine Teile</div>
+      <div className="space-y-1.5">
+        {list.map((p) => (
+          <div key={p.id} className="flex items-center gap-1.5 rounded-lg border border-[#30363d] bg-[#0d1117] p-2">
+            <button className="flex-1 min-w-0 text-left" onClick={() => open(p)} title="Öffnen">
+              <div className="text-[13px] text-slate-100 truncate">{p.name}</div>
+              <div className="text-[11px] text-slate-500">{new Date(p.created).toLocaleDateString('de-DE')}</div>
+            </button>
+            <button className="h-8 px-2 rounded-md border border-[#30363d] text-[11.5px] text-slate-300" title="In „Frei bauen“ einfügen" onClick={() => insert(p)}>
+              ➕ Einfügen
+            </button>
+            {confirm === p.id ? (
+              <button className="h-8 px-2 rounded-md bg-red-600 text-white text-[11.5px]" onClick={() => (myParts.remove(p.id), setConfirm(null))}>
+                Löschen?
+              </button>
+            ) : (
+              <button className="h-8 px-2 rounded-md border border-[#5c1d24] text-red-300 text-[11.5px]" onClick={() => setConfirm(p.id)}>
+                🗑
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
