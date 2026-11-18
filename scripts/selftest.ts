@@ -109,18 +109,17 @@ check('foto negativform', pm, { ...defaultValues(pm), mode: 1 });
     mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } }),
     mk('Text', { pos: [0, 6, 4.6], e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } }),
   ])!, {});
-  // DIAG
   {
-    const P0 = (slot: number) => mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 }, slot });
-    const TX = (y: number, slot: number) => mk('Text', { pos: [0, y, 4.8], slot, e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } });
-    const M = () => mk('Magnetloch', { pos: [30, 0, 1.6] });
-    check('diag Text zuerst (Platte slot2)', freeToModel([P0(2), TX(6, 1), M()])!, {});
-    check('diag Text fern ohne Loch-Überlappung', freeToModel([P0(1), TX(80, 2), M()])!, {});
-    check('diag 1farb P+M+Text fern', freeToModel([P0(1), TX(80, 1), M()])!, {});
-    check('diag 2farb P+M + Zylinder fern', freeToModel([P0(1), mk('Zylinder', { pos: [0, 80, 10], slot: 2 }), M()])!, {});
-    check('diag 2farb P+M + Kugel fern', freeToModel([P0(1), mk('Kugel', { pos: [0, 80, 10], slot: 2 }), M()])!, {});
-    check('diag 2farb P+M + Quader nah', freeToModel([P0(1), mk('Quader', { pos: [0, 30, 5], slot: 2 }), M()])!, {});
-    check('diag Text slot2, Loch weit weg von allem', freeToModel([P0(1), TX(6, 2), mk('Magnetloch', { pos: [200, 0, 1.6] })])!, {});
+    // Umriss-Schrift (wie im Browser erzeugt): Ring mit Loch, zweifarbig neben Löchern
+    const ring = (r: number, n = 24): [number, number][] => Array.from({ length: n }, (_, i) => [r * Math.cos((2 * Math.PI * i) / n), r * Math.sin((2 * Math.PI * i) / n)] as [number, number]);
+    const outline = { key: 'test', width: 1, shapes: [{ outer: ring(0.5), holes: [ring(0.3).reverse()] }] };
+    check('frei Umriss-Text zweifarbig + Löcher', freeToModel([
+      mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } }),
+      mk('Text', { pos: [0, 6, 4.8], slot: 2, outline, e: { text: 'O', font: 'sans', fett: true, hoehe: 12, dicke: 1.6, strich: 0 } }),
+      mk('Text', { hole: true, pos: [0, -10, 3.6], outline, e: { text: 'O', font: 'sans', fett: true, hoehe: 8, dicke: 1, strich: 0 } }),
+      mk('Schraubloch', { pos: [-30, 0, 2], e: { d: 4, k: 8, L: 4 } }),
+      mk('Magnetloch', { pos: [30, 0, 1.6] }),
+    ])!, {});
   }
   check('frei Scharnier an zwei Platten', freeToModel([
     mk('Scharnier', { pos: [0, 0, 4] }),

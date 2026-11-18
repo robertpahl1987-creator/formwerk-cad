@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { freeToModel, KINDS, localExtent, newPart, PRESETS, worldBox, type FreePart, type Preset } from '../cad/free';
+import { outlineKey, outlineText } from '../cad/textOutline';
 import { saveFile } from '../platform/download';
 import { useStore } from '../state/store';
 import { Button, cx, SliderRow, Toggle } from './ui';
@@ -23,13 +24,26 @@ function load(): Saved {
 }
 const round = (v: number) => Math.round(v * 100) / 100;
 
+/** Schrift-Umriss aktualisieren, wenn sich Text, Schriftart oder „Fett“ geändert haben. */
+function withOutline(p: FreePart): FreePart {
+  if (p.kind !== 'text' || p.e.font === 'einstrich') return p;
+  const text = String(p.e.text ?? ''),
+    font = String(p.e.font ?? 'sans'),
+    bold = !!p.e.fett;
+  if (p.outline && p.outline.key === outlineKey(text, font, bold)) return p;
+  return { ...p, outline: outlineText(text, font, bold) };
+}
+
 /**
  * Frei bauen: Grundformen, Löcher, Text und Gelenke zusammenstecken.
  * Alles wird als normales Formwerk-Modell gebaut (Vorschau, Check, Export).
  */
 export function FreeMode() {
   const { state, dispatch } = useStore();
-  const [data, setData] = useState<Saved>(load);
+  const [data, setData] = useState<Saved>(() => {
+    const d = load();
+    return { ...d, parts: d.parts.map(withOutline) };
+  });
   const [sel, setSel] = useState<number | null>(null);
   const undoStack = useRef<Saved[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -64,7 +78,7 @@ export function FreeMode() {
     const k = `${id}:${key}`;
     if (lastKey.current !== k) undoStack.current = [...undoStack.current.slice(-39), data];
     lastKey.current = k;
-    setData((d) => ({ ...d, parts: d.parts.map((p) => (p.id === id ? fn(structuredClone(p)) : p)) }));
+    setData((d) => ({ ...d, parts: d.parts.map((p) => (p.id === id ? withOutline(fn(structuredClone(p))) : p)) }));
   };
   const undo = () => {
     const prev = undoStack.current.pop();
@@ -74,7 +88,7 @@ export function FreeMode() {
   };
 
   const add = (pr: Preset) => {
-    const p = newPart(pr, data.next);
+    const p = withOutline(newPart(pr, data.next));
     const ext = localExtent(p);
     const bodies = parts.filter((x) => !x.hole);
     if (bodies.length && !p.hole) {
@@ -165,7 +179,7 @@ export function FreeMode() {
     try {
       const d = JSON.parse(await f.text()) as Saved;
       if (!Array.isArray(d.parts)) throw new Error('kein Projekt');
-      commit({ parts: d.parts, next: d.next || d.parts.length + 1 });
+      commit({ parts: d.parts.map(withOutline), next: d.next || d.parts.length + 1 });
       setSel(null);
       dispatch({ type: 'toast', kind: 'ok', text: 'Projekt geladen' });
     } catch {
@@ -370,12 +384,28 @@ function PartEditor({
         f.type === 'text' ? (
           <label key={f.key} className="block">
             <span className="text-[13px] text-slate-300">{f.label}</span>
-            <input
+            <textarea
               value={String(part.e[f.key] ?? '')}
-              maxLength={60}
+              maxLength={120}
+              rows={2}
               onChange={(e) => set(f.key, (p) => (p.e[f.key] = e.target.value))}
-              className="mt-1 w-full h-10 rounded-md bg-[#161b22] border border-[#30363d] focus:border-[#00ae42] outline-none px-2.5 text-sm text-slate-100"
+              className="mt-1 w-full rounded-md bg-[#161b22] border border-[#30363d] focus:border-[#00ae42] outline-none p-2.5 text-sm text-slate-100 resize-y"
             />
+          </label>
+        ) : f.type === 'select' ? (
+          <label key={f.key} className="flex items-center justify-between gap-3">
+            <span className="text-[13px] text-slate-300">{f.label}</span>
+            <select
+              value={String(part.e[f.key] ?? f.options?.[0]?.value ?? '')}
+              onChange={(e) => set(f.key, (p) => (p.e[f.key] = e.target.value))}
+              className="h-9 rounded-md bg-[#161b22] border border-[#30363d] focus:border-[#00ae42] outline-none px-2 text-sm text-slate-100"
+            >
+              {f.options?.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </label>
         ) : f.type === 'bool' ? (
           <Toggle key={f.key} label={f.label} checked={!!part.e[f.key]} onChange={(v) => set(f.key, (p) => (p.e[f.key] = v))} />

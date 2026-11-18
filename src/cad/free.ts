@@ -23,12 +23,22 @@ export interface FreePart {
   size: V3;
   e: Record<string, FreeValue>;
   lock?: boolean;
+  /** Nur Text: vorberechnete Schrift-Umrisse (Höhe 1, zentriert) */
+  outline?: TextOutline | null;
+}
+
+/** Schrift-Umrisse, normiert auf Höhe 1 und um den Ursprung zentriert. */
+export interface TextOutline {
+  key: string;
+  width: number;
+  shapes: { outer: [number, number][]; holes: [number, number][][] }[];
 }
 
 export interface FieldDef {
   key: string;
   label: string;
-  type: 'num' | 'bool' | 'text';
+  type: 'num' | 'bool' | 'text' | 'select';
+  options?: { value: string; label: string }[];
   min?: number;
   max?: number;
   step?: number;
@@ -58,11 +68,23 @@ export const KINDS: Record<FreeKind, KindDef> = {
     size: false,
     fields: [
       { key: 'text', label: 'Text', type: 'text' },
+      {
+        key: 'font',
+        label: 'Schriftart',
+        type: 'select',
+        options: [
+          { value: 'sans', label: 'Standard' },
+          { value: 'serif', label: 'Mit Serifen' },
+          { value: 'mono', label: 'Schreibmaschine' },
+          { value: 'einstrich', label: 'Einstrich (dünne Linie)' },
+        ],
+      },
+      { key: 'fett', label: 'Fett', type: 'bool' },
       { key: 'hoehe', label: 'Schrifthöhe', type: 'num', min: 3, max: 150, step: 0.5, unit: 'mm' },
       { key: 'dicke', label: 'Dicke / Gravurtiefe', type: 'num', min: 0.4, max: 30, step: 0.2, unit: 'mm' },
-      { key: 'strich', label: 'Strichstärke (0 = automatisch)', type: 'num', min: 0, max: 10, step: 0.1, unit: 'mm' },
+      { key: 'strich', label: 'Strichstärke bei Einstrich (0 = automatisch)', type: 'num', min: 0, max: 10, step: 0.1, unit: 'mm' },
     ],
-    hint: 'Als Körper steht die Schrift erhaben, als Loch wird sie eingraviert. Umlaute werden als ae/oe/ue geschrieben. Ab 6 mm Schrifthöhe wird sie am saubersten.',
+    hint: 'Als Körper steht die Schrift erhaben, als Loch wird sie eingraviert. Mehrere Zeilen mit Enter. Ab 6 mm Schrifthöhe wird sie am saubersten.',
   },
   schraubloch: {
     size: false,
@@ -115,7 +137,7 @@ export const PRESETS: Preset[] = [
   { label: 'Rohr', icon: '◎', kind: 'rohr', size: [20, 20, 20], e: { wand: 2 } },
   { label: 'Keil', icon: '◺', kind: 'keil', size: [20, 20, 10], e: {} },
   { label: 'Sechskant', icon: '⬡', kind: 'zylinder', size: [10, 10, 5], e: { oben: 100, seg: 6 } },
-  { label: 'Text', icon: 'T', kind: 'text', e: { text: 'Hallo', hoehe: 10, dicke: 2, strich: 0 } },
+  { label: 'Text', icon: 'T', kind: 'text', e: { text: 'Hallo', font: 'sans', fett: true, hoehe: 10, dicke: 2, strich: 0 } },
   { label: 'Loch', icon: '⊖', kind: 'zylinder', size: [5, 5, 30], e: { oben: 100, seg: 0 }, hole: true },
   { label: 'Magnetloch', icon: '🧲', kind: 'zylinder', size: [6.3, 6.3, 3.2], e: { oben: 100, seg: 0 }, hole: true },
   { label: 'Schraubloch', icon: '🔩', kind: 'schraubloch', e: { d: 4, k: 8, L: 10 }, hole: true },
@@ -194,7 +216,19 @@ export function partShape(p: FreePart): CadNode {
       };
     case 'text': {
       const d = num(e.dicke, 2),
-        st = num(e.strich, 0);
+        st = num(e.strich, 0),
+        hh = num(e.hoehe, 10);
+      const ol = p.outline;
+      if (e.font !== 'einstrich' && ol && ol.shapes.length) {
+        const sc = (q: [number, number]): [number, number] => [r3(q[0] * hh), r3(q[1] * hh)];
+        const solids: CadNode[] = ol.shapes.map((sh) => ({
+          type: 'extrude',
+          h: r3(d),
+          center: true,
+          shape: { type: 'polygon', points: sh.outer.map(sc), ...(sh.holes.length ? { holes: sh.holes.map((hl) => hl.map(sc)) } : {}) },
+        }));
+        return solids.length === 1 ? solids[0] : { type: 'union', children: solids };
+      }
       const txt = String(e.text ?? '').replace(/[{}]/g, '').trim() || ' ';
       const t: CadNode = st > 0 ? { type: 'text', text: txt, size: r3(num(e.hoehe, 10)), h: r3(d), center: true, stroke: r3(st) } : { type: 'text', text: txt, size: r3(num(e.hoehe, 10)), h: r3(d), center: true };
       return tr([0, 0, -d / 2], [t]);
@@ -277,7 +311,8 @@ export function localExtent(p: FreePart): V3 {
   switch (p.kind) {
     case 'text': {
       const h = num(e.hoehe, 10);
-      return [Math.max(h, String(e.text ?? '').length * h), h * 1.3, num(e.dicke, 2)];
+      const w = p.outline && e.font !== 'einstrich' ? p.outline.width * h : Math.max(h, String(e.text ?? '').length * h);
+      return [w, h * 1.3, num(e.dicke, 2)];
     }
     case 'schraubloch':
       return [Math.max(num(e.d, 4), num(e.k, 0)) + 0.3, Math.max(num(e.d, 4), num(e.k, 0)) + 0.3, num(e.L, 10) + 1];
