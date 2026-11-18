@@ -8,6 +8,8 @@ import { DEFAULT_HOLLOW, type HollowOptions } from '../cad/build';
 import { PROFILES, type PrintProfile } from '../mesh/mesh';
 
 export type Mode = 'text' | 'photo' | 'library' | 'free';
+/** Die drei Arbeitsschritte im Seitenmenü */
+export type Step = 'create' | 'adjust' | 'print';
 
 export interface Settings {
   ai: AiSettings;
@@ -37,6 +39,7 @@ export interface ViewOpts {
 
 export interface State {
   mode: Mode;
+  step: Step;
   model: ModelDef | null;
   values: Record<string, Value>;
   orientation: Orientation;
@@ -107,6 +110,7 @@ function loadSettings(): Settings {
 
 export type Action =
   | { type: 'mode'; mode: Mode }
+  | { type: 'step'; step: Step }
   | { type: 'setModel'; model: ModelDef; values?: Record<string, Value> }
   /** Frei bauen: Modell ersetzen, ohne Kamera neu auszurichten und ohne Verlaufseintrag pro Regler-Bewegung. */
   | { type: 'freeModel'; model: ModelDef }
@@ -133,6 +137,8 @@ function reducer(s: State, a: Action): State {
   switch (a.type) {
     case 'mode':
       return { ...s, mode: a.mode };
+    case 'step':
+      return { ...s, step: a.step };
     case 'setModel': {
       const history = s.model ? [...s.history.slice(-19), { model: s.model, values: s.values }] : s.history;
       return {
@@ -142,6 +148,7 @@ function reducer(s: State, a: Action): State {
         orientation: { rx: 0, ry: 0 },
         buildError: null,
         view: { ...s.view, plate: -1 },
+        step: 'adjust',
         history,
         modelVersion: s.modelVersion + 1,
       };
@@ -217,6 +224,7 @@ const Ctx = createContext<{ state: State; dispatch: Dispatch<Action> } | null>(n
 export function StoreProvider({ children, initialModel = null }: { children: ReactNode; initialModel?: ModelDef | null }) {
   const [state, dispatch] = useReducer(reducer, undefined, (): State => ({
     mode: 'text',
+    step: 'create',
     model: initialModel,
     values: initialModel ? defaultValues(initialModel) : {},
     orientation: { rx: 0, ry: 0 },

@@ -8,10 +8,10 @@ import { freeBus, useFreeSnapshot } from './state/freeBus';
 import { FreeMode } from './components/FreeMode';
 import { PhotoMode } from './components/PhotoMode';
 import { abortRef, TextMode } from './components/TextMode';
-import { cx, SliderRow, useMedia } from './components/ui';
+import { Button, cx, SliderRow, useMedia } from './components/ui';
 import { checkApkUpdate, isNativeApp, openApkDownload } from './platform/native';
 import { explodedParts, runPipeline } from './state/pipeline';
-import { useStore, type Mode } from './state/store';
+import { useStore, type Mode, type Step } from './state/store';
 import { Viewer } from './viewer/Viewer';
 
 // ------------------------------------------------------------ Installation (PWA)
@@ -76,17 +76,112 @@ function TopBar() {
   );
 }
 
-const MODES: [Mode, string][] = [
-  ['text', '✍️ Text → CAD'],
-  ['photo', '📷 Foto → CAD'],
-  ['library', '📚 Vorlagen'],
-  ['free', '✏️ Frei bauen'],
+const MODES: { m: Mode; icon: string; label: string; sub: string }[] = [
+  { m: 'text', icon: '✍️', label: 'Beschreiben', sub: 'In Worten sagen, was du brauchst' },
+  { m: 'photo', icon: '📷', label: 'Foto', sub: 'Teil abfotografieren & nachbauen' },
+  { m: 'library', icon: '📚', label: 'Vorlagen', sub: 'Fertige Modelle anpassen' },
+  { m: 'free', icon: '✏️', label: 'Frei bauen', sub: 'Aus Formen zusammensetzen' },
 ];
+
+const STEPS: { s: Step; n: number; label: string }[] = [
+  { s: 'create', n: 1, label: 'Erstellen' },
+  { s: 'adjust', n: 2, label: 'Anpassen' },
+  { s: 'print', n: 3, label: 'Drucken' },
+];
+
+/** Kopfzeile mit den drei Schritten: Erstellen → Anpassen → Drucken */
+function StepNav() {
+  const { state, dispatch } = useStore();
+  const has = !!state.model;
+  return (
+    <div className="sticky top-0 z-10 bg-[#161b22]/95 backdrop-blur border-b border-[#21262d] px-3 py-2.5">
+      <div className="grid grid-cols-3 gap-1.5">
+        {STEPS.map(({ s, n, label }) => {
+          const active = state.step === s;
+          const disabled = s !== 'create' && !has;
+          const done = has && ((s === 'create' && state.step !== 'create') || (s === 'adjust' && state.step === 'print'));
+          return (
+            <button
+              key={s}
+              disabled={disabled}
+              onClick={() => dispatch({ type: 'step', step: s })}
+              className={cx(
+                'h-11 rounded-xl border flex items-center justify-center gap-2 text-[13.5px] font-semibold transition-colors disabled:opacity-35',
+                active ? 'bg-[#00ae42] border-[#00ae42] text-white' : 'bg-[#0d1117] border-[#30363d] text-slate-300 hover:border-[#4b5563]',
+              )}
+            >
+              <span className={cx('w-5 h-5 rounded-full text-[11px] flex items-center justify-center', active ? 'bg-white/25' : done ? 'bg-[#00ae42] text-white' : 'bg-[#30363d]')}>
+                {done && !active ? '✓' : n}
+              </span>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Kurze Anleitung beim ersten Öffnen */
+function Welcome() {
+  const [show, setShow] = useState(() => {
+    try {
+      return !localStorage.getItem('formwerk-cad:welcome');
+    } catch {
+      return true;
+    }
+  });
+  if (!show) return null;
+  const close = () => {
+    setShow(false);
+    try {
+      localStorage.setItem('formwerk-cad:welcome', '1');
+    } catch {
+      /* egal */
+    }
+  };
+  return (
+    <div className="mx-4 mt-4 rounded-xl border border-[#00ae42]/50 bg-[#00ae42]/5 p-3.5 text-[13px] text-slate-200 space-y-2">
+      <div className="flex justify-between items-start gap-2">
+        <b className="text-white">So einfach geht's</b>
+        <button onClick={close} className="text-slate-400 hover:text-white -mt-0.5">
+          ✕
+        </button>
+      </div>
+      <ol className="space-y-1 text-[12.5px] text-slate-300">
+        <li>
+          <b className="text-white">1 Erstellen</b> – beschreiben, Foto, Vorlage oder frei bauen
+        </li>
+        <li>
+          <b className="text-white">2 Anpassen</b> – Maße mit Reglern einstellen
+        </li>
+        <li>
+          <b className="text-white">3 Drucken</b> – prüfen und als 3MF für Bambu Studio speichern
+        </li>
+      </ol>
+      <button onClick={close} className="text-[12px] text-[#3ddc84] underline">
+        Verstanden
+      </button>
+    </div>
+  );
+}
+
+function NextButton({ to, label }: { to: Step; label: string }) {
+  const { dispatch } = useStore();
+  return (
+    <div className="p-4">
+      <Button variant="primary" className="w-full h-11" onClick={() => dispatch({ type: 'step', step: to })}>
+        {label}
+      </Button>
+    </div>
+  );
+}
 
 function PanelContent() {
   const { state, dispatch } = useStore();
   const [repairing, setRepairing] = useState(false);
   const isFree = state.model?.templateId === 'frei';
+  const step = state.step;
   const repair = async () => {
     if (!state.model || !state.buildError) return;
     setRepairing(true);
@@ -100,29 +195,10 @@ function PanelContent() {
       setRepairing(false);
     }
   };
+  const current = MODES.find((x) => x.m === state.mode)!;
   return (
     <>
-      <div className="px-4 pt-4 pb-4 border-b border-[#21262d]">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 rounded-xl bg-[#0d1117] border border-[#21262d] mb-4">
-          {MODES.map(([m, l]) => (
-            <button key={m} onClick={() => dispatch({ type: 'mode', mode: m })} className={cx('h-9 rounded-lg text-[12.5px] font-medium transition-colors', state.mode === m ? 'bg-[#00ae42] text-white' : 'text-slate-400 hover:text-white')}>
-              {l}
-            </button>
-          ))}
-        </div>
-        <div className={state.mode === 'text' ? '' : 'hidden'}>
-          <TextMode />
-        </div>
-        <div className={state.mode === 'photo' ? '' : 'hidden'}>
-          <PhotoMode />
-        </div>
-        <div className={state.mode === 'library' ? '' : 'hidden'}>
-          <Library />
-        </div>
-        <div className={state.mode === 'free' ? '' : 'hidden'}>
-          <FreeMode />
-        </div>
-      </div>
+      <StepNav />
       {state.buildError && (
         <div className="m-4 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-[13px] text-red-200 space-y-2">
           <div>
@@ -135,14 +211,88 @@ function PanelContent() {
           )}
         </div>
       )}
-      {!isFree && <EmptyState />}
-      {!isFree && <EditPanel />}
-      {!isFree && <ParamPanel />}
-      <PrintCheck />
-      <SplitPanel />
-      <ColorPanel />
-      <MaterialPanel />
-      <ExportPanel />
+
+      {/* ---------- Schritt 1: Erstellen (Inhalte bleiben eingehängt, damit nichts verloren geht) ---------- */}
+      <div className={step === 'create' ? '' : 'hidden'}>
+        <Welcome />
+        <div className="px-4 pt-4 pb-4">
+          <div className="text-[12px] text-slate-400 mb-2">Wie möchtest du dein Teil erstellen?</div>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {MODES.map((x) => (
+              <button
+                key={x.m}
+                onClick={() => dispatch({ type: 'mode', mode: x.m })}
+                className={cx(
+                  'text-left rounded-xl border p-2.5 transition-colors',
+                  state.mode === x.m ? 'border-[#00ae42] bg-[#00ae42]/10' : 'border-[#30363d] bg-[#0d1117] hover:border-[#4b5563]',
+                )}
+              >
+                <div className="text-[14px] font-semibold text-white">
+                  {x.icon} {x.label}
+                </div>
+                <div className="text-[11px] text-slate-400 leading-snug mt-0.5">{x.sub}</div>
+              </button>
+            ))}
+          </div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#3ddc84] mb-3">
+            {current.icon} {current.label}
+          </div>
+          <div className={state.mode === 'text' ? '' : 'hidden'}>
+            <TextMode />
+          </div>
+          <div className={state.mode === 'photo' ? '' : 'hidden'}>
+            <PhotoMode />
+          </div>
+          <div className={state.mode === 'library' ? '' : 'hidden'}>
+            <Library />
+          </div>
+          <div className={state.mode === 'free' ? '' : 'hidden'}>
+            <FreeMode />
+          </div>
+        </div>
+        {state.model && state.mode !== 'free' && <NextButton to="adjust" label="Weiter: Anpassen →" />}
+        {state.model && state.mode === 'free' && <NextButton to="print" label="Weiter: Drucken →" />}
+      </div>
+
+      {/* ---------- Schritt 2: Anpassen ---------- */}
+      {step === 'adjust' && (
+        <>
+          <EmptyState />
+          {isFree ? (
+            <div className="m-4 rounded-xl border border-[#30363d] p-4 text-[13px] text-slate-300 space-y-3">
+              <p>Dieses Modell ist frei gebaut. Teile, Maße und Position änderst du direkt im Baukasten.</p>
+              <Button
+                className="w-full"
+                onClick={() => {
+                  dispatch({ type: 'mode', mode: 'free' });
+                  dispatch({ type: 'step', step: 'create' });
+                }}
+              >
+                ✏️ Zum Baukasten
+              </Button>
+            </div>
+          ) : (
+            <>
+              <ParamPanel />
+              <EditPanel />
+            </>
+          )}
+          {state.model && <NextButton to="print" label="Weiter: Drucken →" />}
+        </>
+      )}
+
+      {/* ---------- Schritt 3: Drucken ---------- */}
+      {step === 'print' && (
+        <>
+          <EmptyState />
+          <PrintCheck />
+          <ExportPanel />
+          <div className="px-4 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Erweitert (optional)</div>
+          <MaterialPanel />
+          <ColorPanel />
+          <SplitPanel />
+        </>
+      )}
       <div className="h-24 lg:h-6" />
     </>
   );

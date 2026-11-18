@@ -23,6 +23,7 @@ export function TextMode() {
   const [text, setText] = useState('');
   const [ms, setMs] = useState<Measures>({});
   const [multi, setMulti] = useState(false);
+  const [allEx, setAllEx] = useState(false);
   const [provider, setProvider] = useState('…');
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -68,16 +69,23 @@ export function TextMode() {
           className="mt-1 w-full rounded-lg bg-[#0d1117] border border-[#30363d] focus:border-[#00ae42] outline-none p-3 text-sm text-slate-100 resize-y min-h-[84px]"
         />
         <div className="flex flex-wrap gap-1.5 mt-1.5">
-          {EXAMPLES.map((ex) => (
+          {(allEx ? EXAMPLES : EXAMPLES.slice(0, 4)).map((ex) => (
             <button key={ex} onClick={() => setText(ex)} className="text-left text-[11px] px-2.5 py-1 rounded-full border border-[#30363d] text-slate-400 hover:text-white hover:border-[#00ae42]">
               {ex}
             </button>
           ))}
+          <button onClick={() => setAllEx(!allEx)} className="text-[11px] px-2.5 py-1 rounded-full text-[#3ddc84] hover:underline">
+            {allEx ? 'weniger' : `+ ${EXAMPLES.length - 4} weitere Beispiele`}
+          </button>
         </div>
       </div>
 
-      <div>
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-1.5">Pflicht- &amp; Wunschmaße (mm)</div>
+      <details className="rounded-lg border border-[#30363d] bg-[#0d1117] px-3 py-2 group" open={Object.values(ms).some((v) => v !== undefined)}>
+        <summary className="cursor-pointer list-none flex items-center justify-between text-[13px] text-slate-200">
+          <span>📏 Genaue Maße angeben <span className="text-slate-500">(optional)</span></span>
+          <span className="text-slate-500 group-open:rotate-180 transition-transform text-xs">▾</span>
+        </summary>
+        <p className="text-[11.5px] text-slate-500 mt-1.5 mb-2">Maße kannst du auch einfach in den Text schreiben, z. B. „120 x 80 x 50 mm“. Leere Felder bestimmt die App.</p>
         <div className="grid grid-cols-2 gap-2">
           {(
             [
@@ -98,13 +106,13 @@ export function TextMode() {
             <NumberInput value={ms.count} onChange={set('count')} min={0} max={50} step={1} unit="Stk" placeholder="–" />
           </label>
         </div>
-        <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
-          <label className="block">
-            <span className="text-[12px] text-slate-400">Drucktoleranz (Spiel für Passungen)</span>
-            <NumberInput value={state.settings.tol} onChange={(v) => v !== undefined && dispatch({ type: 'settings', patch: { tol: v } })} min={0} max={1} step={0.05} unit="mm" />
-          </label>
-        </div>
-        <div className="mt-3">
+        <label className="block mt-3 mb-1">
+          <span className="text-[12px] text-slate-400">Spiel für Steck-Passungen (Standard 0,2 mm)</span>
+          <NumberInput value={state.settings.tol} onChange={(v) => v !== undefined && dispatch({ type: 'settings', patch: { tol: v } })} min={0} max={1} step={0.05} unit="mm" />
+        </label>
+      </details>
+      <div>
+        <div>
           <Toggle label="Mehrfarbig (AMS)" hint="Farbteile, Beschriftungen oder Farbwechsel nach Höhe" checked={multi} onChange={setMulti} />
         </div>
       </div>
