@@ -69,7 +69,7 @@ function threadGeom(d: number, p: number, h: number, iso: boolean, chamfer: bool
     const ring: number[][] = [];
     for (let i = 0; i < N; i++) {
       const th = (2 * Math.PI * i) / N;
-      const rr = rad(th, z);
+      const rr = rad(th, z) + (j > 0 && j < rows ? 0.003 * Math.sin(th * 7.3 + j * 2.1) : 0);
       ring.push([rr * Math.cos(th), rr * Math.sin(th), z]);
     }
     P3.push(ring);
