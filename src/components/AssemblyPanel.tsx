@@ -70,6 +70,20 @@ export function newPlate(dispatch: Dispatch<Action>, state: State, S: PipelineSe
   dispatch({ type: 'toast', kind: 'info', text: 'Neue Platte: erstelle jetzt das nächste Teil – es wird automatisch angelegt' });
 }
 
+/** Platte löschen; war sie geöffnet, wird die vorherige (oder nächste) Platte geöffnet. */
+export function deletePlate(dispatch: Dispatch<Action>, all: AsmItem[], id: number) {
+  const items = all.filter((i) => !i.auto);
+  const idx = items.findIndex((i) => i.id === id);
+  const rest = items.filter((i) => i.id !== id);
+  dispatch({ type: 'asmRemove', id });
+  if (rest.length) openPlate(dispatch, rest, rest[Math.max(0, idx - 1)].id);
+  else {
+    dispatch({ type: 'clearModel' });
+    freeBus.send({ type: 'load', parts: [] });
+  }
+  dispatch({ type: 'toast', kind: 'info', text: `Platte ${idx + 1} gelöscht` });
+}
+
 /** Leiste mit allen Platten – in jedem Schritt sichtbar. */
 export function PlateBar() {
   const { state, dispatch } = useStore();
@@ -86,7 +100,9 @@ export function PlateBar() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asm.pendingNew, state.model]);
+  const [confirmDel, setConfirmDel] = useState<number | null>(null);
   if (!items.length && !state.model && !asm.pendingNew) return null;
+  const current = items.find((i) => i.id === asm.editing);
   const chip = (active: boolean) =>
     cx('h-8 px-2.5 rounded-lg border text-[12px] whitespace-nowrap shrink-0', active ? 'border-[#00ae42] bg-[#00ae42]/15 text-white' : 'border-[#30363d] text-slate-300 bg-[#0d1117]');
   return (
@@ -114,6 +130,28 @@ export function PlateBar() {
           ＋ Neue Platte
         </button>
       </div>
+      {current && (
+        <div className="mt-1.5 flex items-center gap-2 text-[12px]">
+          <span className="text-slate-400 truncate flex-1">
+            Offen: Platte {items.indexOf(current) + 1} von {items.length}
+          </span>
+          {confirmDel === current.id ? (
+            <>
+              <span className="text-red-300">Platte {items.indexOf(current) + 1} löschen?</span>
+              <button className="h-7 px-2.5 rounded-md bg-red-600 text-white" onClick={() => (deletePlate(dispatch, asm.items, current.id), setConfirmDel(null))}>
+                Ja
+              </button>
+              <button className="h-7 px-2.5 rounded-md border border-[#30363d] text-slate-300" onClick={() => setConfirmDel(null)}>
+                Abbrechen
+              </button>
+            </>
+          ) : (
+            <button className="h-7 px-2.5 rounded-md border border-[#5c1d24] text-red-300" onClick={() => setConfirmDel(current.id)}>
+              🗑 Platte löschen
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -275,7 +313,13 @@ export function AssemblyPanel() {
                     >
                       ✏️
                     </button>
-                    <button title="Entfernen" className="h-8 px-2 rounded-md border border-[#5c1d24] text-red-300 text-[12px]" onClick={() => dispatch({ type: 'asmRemove', id: it.id })}>
+                    <button
+                      title="Platte löschen"
+                      className="h-8 px-2 rounded-md border border-[#5c1d24] text-red-300 text-[12px]"
+                      onClick={() => {
+                        if (window.confirm(`Platte ${idx + 1} („${it.model.name}“) löschen?`)) deletePlate(dispatch, asm.items, it.id);
+                      }}
+                    >
                       🗑
                     </button>
                   </div>

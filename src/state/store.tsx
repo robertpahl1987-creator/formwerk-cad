@@ -278,7 +278,18 @@ function reducer(s: State, a: Action): State {
     }
     case 'asmRemove': {
       const items = s.asm.items.filter((it) => it.id !== a.id);
-      return { ...s, asm: { ...s.asm, items, editing: s.asm.editing === a.id ? null : s.asm.editing, view: items.length ? s.asm.view : 'off' } };
+      const hadMods = s.asm.items.some((it) => it.model.mods);
+      return {
+        ...s,
+        asm: {
+          ...s.asm,
+          items,
+          editing: s.asm.editing === a.id ? null : s.asm.editing,
+          view: items.length > 1 ? s.asm.view : 'off',
+          report: hadMods && items.length ? ['⚠ Platte gelöscht – bitte „Alle Platten passend bauen“ erneut drücken, damit keine überflüssigen Löcher bleiben.'] : s.asm.report,
+          pins: items.length ? s.asm.pins : null,
+        },
+      };
     }
     case 'asmNew':
       return {
