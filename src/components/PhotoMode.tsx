@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as RPointer
 import { generateWithAi, PROVIDER_LABEL, resolveProvider } from '../ai/providers';
 import { defaultValues } from '../cad/validate';
 import { photoModel } from '../photo/photoModel';
+import { PHOTO_EVENT } from '../platform/cloud';
 import { contourToMm, findContour, loadImageToCanvas, rectify, segment, type Contour, type Pt, type SegResult } from '../photo/vision';
 import { useStore } from '../state/store';
 import { abortRef } from './TextMode';
@@ -40,7 +41,7 @@ export function PhotoMode() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drag = useRef<number | null>(null);
 
-  const onFile = async (f: File | undefined) => {
+  const onFile = async (f: Blob | undefined) => {
     if (!f) return;
     try {
       const c = await loadImageToCanvas(f);
@@ -55,6 +56,17 @@ export function PhotoMode() {
       dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
     }
   };
+
+  // Foto aus der Ablage (Handy ↔ PC)
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ blob: Blob; target: string }>).detail;
+      if (d.target === 'photo') void onFile(d.blob);
+    };
+    window.addEventListener(PHOTO_EVENT, h);
+    return () => window.removeEventListener(PHOTO_EVENT, h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Maßstab aus Referenzlinie
   useEffect(() => {

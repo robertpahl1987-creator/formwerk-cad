@@ -7,6 +7,7 @@ import { APK_URL, isNativeApp } from '../platform/native';
 import { useStore } from '../state/store';
 import { Button, NumberInput, cx } from './ui';
 import { ToleranceCalibration } from './ModelPanels';
+import { cloudList, cloudToken } from '../platform/cloud';
 
 function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -107,6 +108,7 @@ export function SettingsDialog() {
           <p className="text-[11px] text-slate-500">Auf dem Handy öffnen und installieren (einmalig „Installation aus unbekannten Quellen“ erlauben). Link: {APK_URL}</p>
         </section>
       )}
+      <CloudSettings />
       <section className="space-y-3 pt-2 border-t border-[#21262d]">
         <h3 className="text-[11px] uppercase tracking-wider text-slate-500 pt-2">Drucker</h3>
         <ToleranceCalibration />
@@ -221,5 +223,60 @@ export function CodeDialog() {
         </>
       )}
     </Modal>
+  );
+}
+
+function CloudSettings() {
+  const [tok, setTok] = useState(cloudToken.get());
+  const [msg, setMsg] = useState<string | null>(null);
+  const test = async () => {
+    cloudToken.set(tok);
+    setMsg('Prüfe …');
+    try {
+      const l = await cloudList();
+      setMsg(`✓ Verbunden – ${l.length} Einträge in der Ablage`);
+    } catch (e) {
+      setMsg(`⚠ ${(e as Error).message}`);
+    }
+  };
+  return (
+    <section className="space-y-2 pt-2 border-t border-[#21262d]">
+      <h3 className="text-[11px] uppercase tracking-wider text-slate-500 pt-2">☁️ Ablage Handy ↔ PC</h3>
+      <p className="text-[12px] text-slate-400 leading-snug">
+        Speichert Fotos und Projekte in einem <b className="text-slate-200">privaten</b> Gist in deinem GitHub-Konto. Schlüssel einmal erstellen und auf Handy <i>und</i> PC eintragen:{' '}
+        <a className="text-[#3ddc84] underline" href="https://github.com/settings/tokens/new?scopes=gist&description=Formwerk%20CAD%20Ablage" target="_blank" rel="noreferrer">
+          Schlüssel erstellen
+        </a>{' '}
+        (nur Haken bei „gist“, Ablauf z. B. „No expiration“) → „Generate token“ → kopieren.
+      </p>
+      <input
+        type="password"
+        value={tok}
+        onChange={(e) => setTok(e.target.value)}
+        placeholder="ghp_…"
+        autoComplete="off"
+        className="w-full h-9 rounded-md bg-[#0d1117] border border-[#30363d] focus:border-[#00ae42] outline-none px-2.5 text-sm text-slate-100"
+      />
+      <div className="flex gap-2">
+        <Button className="flex-1 h-9 text-[12.5px]" onClick={test}>
+          Speichern & prüfen
+        </Button>
+        {tok && (
+          <Button
+            variant="subtle"
+            className="h-9 text-[12.5px]"
+            onClick={() => {
+              setTok('');
+              cloudToken.set('');
+              setMsg('Schlüssel entfernt');
+            }}
+          >
+            Entfernen
+          </Button>
+        )}
+      </div>
+      {msg && <p className="text-[12px] text-slate-300">{msg}</p>}
+      <p className="text-[11px] text-slate-500">Der Schlüssel bleibt nur auf diesem Gerät gespeichert.</p>
+    </section>
   );
 }

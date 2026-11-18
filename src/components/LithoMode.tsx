@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { hashId, registerImported, weldTriangles } from '../mesh/importMesh';
 import { DEFAULT_LITHO, lithoSoup, sampleImage, type LithoOptions } from '../photo/litho';
 import { useStore } from '../state/store';
+import { PHOTO_EVENT } from '../platform/cloud';
 import { Button, SliderRow, Toggle } from './ui';
 
 /** Lithophanie: Foto wählen, Größe/Stärke einstellen, als druckbares Relief erzeugen. */
@@ -15,8 +16,17 @@ export function LithoMode() {
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);
   useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url]);
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ blob: Blob; target: string }>).detail;
+      if (d.target === 'litho') pick(d.blob);
+    };
+    window.addEventListener(PHOTO_EVENT, h);
+    return () => window.removeEventListener(PHOTO_EVENT, h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const pick = (f: File | undefined) => {
+  const pick = (f: Blob | undefined) => {
     if (!f) return;
     const u = URL.createObjectURL(f);
     const im = new Image();

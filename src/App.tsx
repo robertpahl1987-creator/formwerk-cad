@@ -11,6 +11,7 @@ import { EditPanel } from './components/EditPanel';
 import { freeBus, useFreeSnapshot } from './state/freeBus';
 import { FreeMode } from './components/FreeMode';
 import { LithoMode } from './components/LithoMode';
+import { CloudPanel } from './components/CloudPanel';
 import { PhotoMode } from './components/PhotoMode';
 import { abortRef, TextMode } from './components/TextMode';
 import { Button, cx, SliderRow, useMedia } from './components/ui';
@@ -223,6 +224,7 @@ function PanelContent() {
       {/* ---------- Schritt 1: Erstellen (Inhalte bleiben eingehängt, damit nichts verloren geht) ---------- */}
       <div className={step === 'create' ? '' : 'hidden'}>
         <Welcome />
+        <CloudPanel />
         <div className="px-4 pt-4 pb-4">
           <div className="text-[12px] text-slate-400 mb-2">Wie möchtest du dein Teil erstellen?</div>
           <div className="grid grid-cols-2 gap-2 mb-4">
