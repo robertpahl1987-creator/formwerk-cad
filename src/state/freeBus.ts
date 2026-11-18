@@ -29,12 +29,15 @@ export type FreeAction =
   | 'addHole'
   | 'selectAll'
   | 'raster'
-  | 'undo';
+  | 'undo'
+  | 'weld';
 
 export type FreeCommand =
   | { type: 'select'; ids: number[]; additive?: boolean }
   /** Baukasten mit diesen Teilen neu füllen (andere Platte geöffnet) */
   | { type: 'load'; parts: FreePart[] }
+  /** Mit der Maus in der 3D-Ansicht verschoben / gedreht (gilt für die ganze Auswahl) */
+  | { type: 'transform'; move?: [number, number, number]; rot?: { axis: 0 | 1 | 2; deg: number; pivot: [number, number, number] } }
   | { type: 'action'; action: FreeAction; ids: number[]; arg?: string | number; at?: [number, number] };
 
 export interface MenuState {

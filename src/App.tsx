@@ -583,6 +583,7 @@ export function App() {
               modelVersion={viewKey}
               overlay={overlay}
               onPick={(id, additive) => freeBus.send({ type: 'select', ids: id === null ? [] : [id], additive })}
+              onTransform={(t) => freeBus.send({ type: 'transform', ...t })}
               onMenu={(id, x, y, at) => {
                 if (id !== null && !freeBus.get().sel.includes(id)) freeBus.send({ type: 'select', ids: [id] });
                 freeBus.openMenu({ x, y, id, at });

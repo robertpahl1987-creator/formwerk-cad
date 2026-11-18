@@ -143,7 +143,7 @@ export function weldTriangles(soup: ArrayLike<number>): { mesh: Mesh; size: [num
   return { mesh: { pos: new Float64Array(pos), tri: new Uint32Array(tri) }, size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]].map((v) => Math.round(v * 100) / 100) as [number, number, number] };
 }
 
-function hashId(m: Mesh): string {
+export function hashId(m: Mesh): string {
   let h = 2166136261;
   const step = Math.max(1, Math.floor(m.pos.length / 4000));
   for (let i = 0; i < m.pos.length; i += step) {

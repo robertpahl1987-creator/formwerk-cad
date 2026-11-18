@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { localExtent, type FreePart } from '../cad/free';
 import type { PartResult } from '../state/pipeline';
+import { getImported } from '../mesh/importMesh';
 import type { ViewOpts } from '../state/store';
 
 /** Frei-bauen-Teile zum Anklicken (Hüllboxen) und Anzeigen negativer Teile. */
@@ -18,6 +19,8 @@ interface Props {
   overlay?: FreeOverlay | null;
   onPick?: (id: number | null, additive: boolean) => void;
   onMenu?: (id: number | null, x: number, y: number, at: [number, number] | null) => void;
+  /** Auswahl mit der Maus verschoben / gedreht (Modellkoordinaten) */
+  onTransform?: (t: { move?: [number, number, number]; rot?: { axis: 0 | 1 | 2; deg: number; pivot: [number, number, number] } }) => void;
   view: ViewOpts;
   bedSize: number;
   modelVersion: number;
@@ -32,6 +35,11 @@ interface Ctx3 {
   model: THREE.Group;
   dims: THREE.Group;
   overlay: THREE.Group;
+  /** ausgewählte Teile (wird beim Ziehen als Vorschau mitbewegt) */
+  selG: THREE.Group;
+  /** Dreh-Ringe um die Auswahl */
+  gizmo: THREE.Group;
+  pivot: THREE.Vector3 | null;
   plane: THREE.Plane;
   raf: number;
   bbox: THREE.Box3 | null;
@@ -157,12 +165,13 @@ function obb(p: FreePart, offset: [number, number, number]) {
 
 const fmt = (n: number) => `${(Math.round(n * 10) / 10).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mm`;
 
-export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu }: Props) {
+export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu, onTransform }: Props) {
   const host = useRef<HTMLDivElement>(null);
+  const hud = useRef<HTMLDivElement>(null);
   const ctx = useRef<Ctx3 | null>(null);
   const lastVersion = useRef(-1);
-  const live = useRef({ overlay, onPick, onMenu });
-  live.current = { overlay, onPick, onMenu };
+  const live = useRef({ overlay, onPick, onMenu, onTransform });
+  live.current = { overlay, onPick, onMenu, onTransform };
 
   // Initialisierung
   useEffect(() => {
@@ -196,8 +205,11 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     const model = new THREE.Group();
     const dims = new THREE.Group();
     const overlayG = new THREE.Group();
-    scene.add(bed, model, dims, overlayG);
-    const c: Ctx3 = { renderer, scene, camera, controls, bed, model, dims, overlay: overlayG, plane: new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), raf: 0, bbox: null };
+    const selG = new THREE.Group();
+    selG.matrixAutoUpdate = false;
+    const gizmo = new THREE.Group();
+    scene.add(bed, model, dims, overlayG, selG, gizmo);
+    const c: Ctx3 = { renderer, scene, camera, controls, bed, model, dims, overlay: overlayG, selG, gizmo, pivot: null, plane: new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), raf: 0, bbox: null };
 
     // ---- Anklicken & Rechtsklick (nur wenn Frei-bauen-Teile vorhanden) ----
     const ray = new THREE.Raycaster();
@@ -247,7 +259,115 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     let longFired = false;
     let rightDown: { x: number; y: number } | null = null;
     const cv = renderer.domElement;
+    // ---- Ziehen: Auswahl verschieben (Teil ziehen) oder drehen (Ring ziehen) ----
+    type Drag = { kind: 'rot'; axis: 0 | 1 | 2; a0: number; deg: number } | { kind: 'move'; p0: THREE.Vector3; d: THREE.Vector3; vertical: boolean };
+    let drag: Drag | null = null;
+    const ndc = (x: number, y: number) => {
+      const r = cv.getBoundingClientRect();
+      return new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+    };
+    const AX = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+    const onPlane = (x: number, y: number, normal: THREE.Vector3, through: THREE.Vector3) => {
+      ray.setFromCamera(ndc(x, y), camera);
+      return ray.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(normal, through), new THREE.Vector3());
+    };
+    const angleAt = (x: number, y: number, axis: number) => {
+      const p = onPlane(x, y, AX[axis], c.pivot!);
+      if (!p) return null;
+      p.sub(c.pivot!);
+      const u = (axis + 1) % 3,
+        v = (axis + 2) % 3;
+      return Math.atan2(p.getComponent(v), p.getComponent(u));
+    };
+    const vertPlaneNormal = () => {
+      const n = camera.position.clone().sub(c.pivot!);
+      n.z = 0;
+      return n.lengthSq() < 1e-6 ? new THREE.Vector3(0, -1, 0) : n.normalize();
+    };
+    const setHud = (t: string | null) => {
+      const el = hud.current;
+      if (!el) return;
+      el.style.display = t ? 'block' : 'none';
+      if (t) el.textContent = t;
+    };
+    const startDrag = (e: PointerEvent): boolean => {
+      const ov = live.current.overlay;
+      if (!ov || !ov.sel.length || !c.pivot || !live.current.onTransform || e.button !== 0) return false;
+      ray.setFromCamera(ndc(e.clientX, e.clientY), camera);
+      const hits = ray.intersectObjects(c.gizmo.children.filter((o) => o.userData.pick), false);
+      if (hits.length) {
+        const axis = hits[0].object.userData.axis as 0 | 1 | 2;
+        const a0 = angleAt(e.clientX, e.clientY, axis);
+        if (a0 === null) return false;
+        drag = { kind: 'rot', axis, a0, deg: 0 };
+      } else {
+        const h = hit(e.clientX, e.clientY);
+        if (h.id === null || !ov.sel.includes(h.id)) return false;
+        const vertical = e.altKey;
+        const p0 = onPlane(e.clientX, e.clientY, vertical ? vertPlaneNormal() : AX[2], c.pivot);
+        if (!p0) return false;
+        drag = { kind: 'move', p0, d: new THREE.Vector3(), vertical };
+      }
+      controls.enabled = false;
+      cv.setPointerCapture?.(e.pointerId);
+      e.stopImmediatePropagation();
+      return true;
+    };
+    const moveDrag = (e: PointerEvent) => {
+      if (!drag || !c.pivot) return;
+      const fine = e.shiftKey;
+      const pv = c.pivot;
+      if (drag.kind === 'rot') {
+        const a = angleAt(e.clientX, e.clientY, drag.axis);
+        if (a === null) return;
+        let deg = ((a - drag.a0) * 180) / Math.PI;
+        deg = ((deg + 540) % 360) - 180;
+        const st = fine ? 1 : 5;
+        deg = Math.round(deg / st) * st;
+        drag.deg = deg;
+        const m = new THREE.Matrix4().makeTranslation(pv.x, pv.y, pv.z).multiply(new THREE.Matrix4().makeRotationAxis(AX[drag.axis], (deg * Math.PI) / 180)).multiply(new THREE.Matrix4().makeTranslation(-pv.x, -pv.y, -pv.z));
+        c.selG.matrix.copy(m);
+        c.selG.matrixWorldNeedsUpdate = true;
+        setHud(`Drehen um ${'XYZ'[drag.axis]}: ${deg > 0 ? '+' : ''}${deg}°`);
+      } else {
+        const p = onPlane(e.clientX, e.clientY, drag.vertical ? vertPlaneNormal() : AX[2], pv);
+        if (!p) return;
+        const d = p.sub(drag.p0);
+        if (drag.vertical) d.set(0, 0, d.z);
+        else d.z = 0;
+        const st = fine ? 0.1 : 1;
+        d.set(Math.round(d.x / st) * st, Math.round(d.y / st) * st, Math.round(d.z / st) * st);
+        drag.d.copy(d);
+        c.selG.matrix.makeTranslation(d.x, d.y, d.z);
+        c.selG.matrixWorldNeedsUpdate = true;
+        c.gizmo.position.copy(d);
+        setHud(drag.vertical ? `Höhe ${d.z > 0 ? '+' : ''}${d.z.toFixed(1).replace('.', ',')} mm` : `X ${d.x.toFixed(1).replace('.', ',')}  Y ${d.y.toFixed(1).replace('.', ',')} mm`);
+      }
+    };
+    const endDrag = (): boolean => {
+      const dr = drag;
+      drag = null;
+      controls.enabled = true;
+      setHud(null);
+      if (!dr || !c.pivot) return false;
+      const off = live.current.overlay?.offset ?? [0, 0, 0];
+      if (dr.kind === 'rot' && dr.deg !== 0) {
+        live.current.onTransform?.({ rot: { axis: dr.axis, deg: dr.deg, pivot: [c.pivot.x - off[0], c.pivot.y - off[1], c.pivot.z - off[2]] } });
+        return true;
+      }
+      if (dr.kind === 'move' && dr.d.lengthSq() > 1e-9) {
+        live.current.onTransform?.({ move: [dr.d.x, dr.d.y, dr.d.z] });
+        return true;
+      }
+      c.selG.matrix.identity();
+      c.gizmo.position.set(0, 0, 0);
+      return false;
+    };
     const onDown = (e: PointerEvent) => {
+      if (startDrag(e)) {
+        down = null;
+        return;
+      }
       if (e.button === 2) rightDown = { x: e.clientX, y: e.clientY };
       down = { x: e.clientX, y: e.clientY, t: performance.now(), touch: e.pointerType === 'touch' };
       longFired = false;
@@ -261,12 +381,24 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       }
     };
     const onMove = (e: PointerEvent) => {
+      if (drag) return moveDrag(e);
+      // Mauszeiger zeigt an, was man greifen kann
+      if (e.pointerType === 'mouse' && !e.buttons && c.pivot && live.current.onTransform) {
+        ray.setFromCamera(ndc(e.clientX, e.clientY), camera);
+        const onRing = ray.intersectObjects(c.gizmo.children.filter((o) => o.userData.pick), false).length > 0;
+        const h = onRing ? null : hit(e.clientX, e.clientY);
+        cv.style.cursor = onRing ? 'grab' : h?.id !== null && h && live.current.overlay?.sel.includes(h.id!) ? 'move' : '';
+      }
       if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8 && longTimer) {
         clearTimeout(longTimer);
         longTimer = null;
       }
     };
     const onUp = (e: PointerEvent) => {
+      if (drag) {
+        endDrag();
+        return;
+      }
       if (longTimer) clearTimeout(longTimer);
       longTimer = null;
       const d0 = down;
@@ -286,7 +418,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       const h = hit(e.clientX, e.clientY);
       live.current.onMenu(h.id, e.clientX, e.clientY, h.at);
     };
-    cv.addEventListener('pointerdown', onDown);
+    cv.addEventListener('pointerdown', onDown, { capture: true });
     cv.addEventListener('pointermove', onMove);
     cv.addEventListener('pointerup', onUp);
     cv.addEventListener('contextmenu', onCtx);
@@ -310,7 +442,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     };
     loop();
     return () => {
-      cv.removeEventListener('pointerdown', onDown);
+      cv.removeEventListener('pointerdown', onDown, { capture: true });
       cv.removeEventListener('pointermove', onMove);
       cv.removeEventListener('pointerup', onUp);
       cv.removeEventListener('contextmenu', onCtx);
@@ -437,7 +569,59 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     const c = ctx.current;
     if (!c) return;
     disposeGroup(c.overlay);
+    disposeGroup(c.selG);
+    disposeGroup(c.gizmo);
+    c.selG.matrix.identity();
+    c.selG.matrixWorldNeedsUpdate = true;
+    c.gizmo.position.set(0, 0, 0);
+    c.pivot = null;
     if (!overlay) return;
+    // Hüllbox der Auswahl → Drehpunkt + Ringe
+    const selBox = new THREE.Box3();
+    for (const p of overlay.parts) {
+      if (!overlay.sel.includes(p.id)) continue;
+      const { center, rot, half } = obb(p, overlay.offset);
+      const m4 = new THREE.Matrix4().setFromMatrix3(rot).setPosition(center);
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) selBox.expandByPoint(new THREE.Vector3(sx * half.x, sy * half.y, sz * half.z).applyMatrix4(m4));
+      // Importierte Teile: echte Form als Vorschau (sieht man beim Drehen/Verschieben)
+      if (p.kind === 'import') {
+        const im = getImported(String(p.e.ref ?? ''));
+        if (im && im.mesh.tri.length / 3 <= 300000) {
+          const g = new THREE.BufferGeometry();
+          g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(im.mesh.pos), 3));
+          g.setIndex(new THREE.BufferAttribute(im.mesh.tri, 1));
+          g.computeVertexNormals();
+          const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x3ddc84, transparent: true, opacity: 0.45, depthWrite: false }));
+          mesh.scale.set(...([0, 1, 2].map((k) => (im.size[k] > 0 ? p.size[k] / im.size[k] : 1)) as [number, number, number]));
+          const holder = new THREE.Group();
+          holder.applyMatrix4(m4);
+          holder.add(mesh);
+          holder.renderOrder = 4;
+          c.selG.add(holder);
+        }
+      }
+    }
+    if (!selBox.isEmpty() && live.current.onTransform) {
+      const pv = selBox.getCenter(new THREE.Vector3());
+      c.pivot = pv;
+      const R = Math.max(selBox.getSize(new THREE.Vector3()).length() / 2 + 4, 10);
+      const tube = Math.max(0.35, R * 0.012);
+      const cols = [0xff5c5c, 0x3ddc84, 0x4c9aff];
+      for (const axis of [0, 1, 2] as const) {
+        const orient = (o: THREE.Object3D) => {
+          if (axis === 0) o.rotation.y = Math.PI / 2;
+          if (axis === 1) o.rotation.x = Math.PI / 2;
+          o.position.copy(pv);
+        };
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(R, tube, 8, 96), new THREE.MeshBasicMaterial({ color: cols[axis], depthTest: false, transparent: true, opacity: 0.9 }));
+        ring.renderOrder = 9;
+        orient(ring);
+        const pick = new THREE.Mesh(new THREE.TorusGeometry(R, Math.max(tube * 5, R * 0.06), 6, 64), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, depthTest: false }));
+        pick.userData = { pick: true, axis };
+        orient(pick);
+        c.gizmo.add(ring, pick);
+      }
+    }
     for (const p of overlay.parts) {
       const selected = overlay.sel.includes(p.id);
       if (!p.hole && !selected) continue;
@@ -449,7 +633,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
         const ghost = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xff5c5c, transparent: true, opacity: selected ? 0.28 : 0.14, depthWrite: false }));
         ghost.applyMatrix4(m4);
         ghost.renderOrder = 5;
-        c.overlay.add(ghost);
+        (selected ? c.selG : c.overlay).add(ghost);
       }
       const edges = new THREE.LineSegments(
         new THREE.EdgesGeometry(geo),
@@ -457,7 +641,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       );
       edges.applyMatrix4(m4);
       edges.renderOrder = 6;
-      c.overlay.add(edges);
+      (selected ? c.selG : c.overlay).add(edges);
     }
   }, [overlay]);
 
@@ -480,6 +664,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
   return (
     <div className="relative w-full h-full">
       <div ref={host} className="absolute inset-0" />
+      <div ref={hud} style={{ display: 'none' }} className="absolute bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-10 rounded-lg bg-[#161b22]/95 border border-[#00ae42] px-3 py-1.5 text-[13px] text-white tabular-nums pointer-events-none" />
       <div className="absolute top-3 right-3 flex flex-col gap-1.5 z-10">
         <button className={btn} title="Ansicht einpassen" onClick={() => ctx.current && frame(ctx.current, 'iso')}>⤢</button>
         <button className={btn} title="Draufsicht" onClick={() => ctx.current && frame(ctx.current, 'top')}>Top</button>

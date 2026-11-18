@@ -93,6 +93,7 @@ export function ContextMenu() {
         <>
           {part && !snap.sel.includes(part.id) && snap.sel.length > 0 && <Item label="➕ Zur Auswahl hinzufügen" onClick={addToSelection} />}
           {multi && <Item label="🔗 Zusammenfügen (gemeinsam bewegen)" onClick={() => run('group')} />}
+          {targets.some((t) => !t.hole) && <Item label={multi ? '🔥 Zusammenschweißen (wird ein Teil)' : '🔥 Verschweißen (zu einem festen Teil)'} onClick={() => run('weld')} />}
           {grouped && <Item label="✂ Trennen (Gruppe auflösen)" onClick={() => run('ungroup')} />}
           {allHoles ? <Item label="■ In Körper umwandeln" onClick={() => run('body')} /> : <Item label="⊖ In negatives Teil umwandeln" onClick={() => run('hole')} />}
           {!multi && !allHoles && <Item label="⊖ Passendes Loch mit Spiel erzeugen" onClick={() => run('matchHole')} />}

@@ -5,6 +5,7 @@
  * Vorlagen und KI-Modellen – ohne eigene Geometrie-Engine.
  */
 import type { CadNode, ModelDef, ModelImport } from './types';
+import { getImported } from '../mesh/importMesh';
 
 export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'hohlraum' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk' | 'import';
 export type V3 = [number, number, number];
@@ -412,12 +413,26 @@ function placed(p: FreePart): CadNode {
 }
 
 /** Baut aus den Teilen ein normales Formwerk-Modell. */
-export function freeToModel(parts: FreePart[]): ModelDef | null {
-  // Importierte Körper laufen nicht durch die CSG-Engine (große Netze), sondern werden als eigene Teile angefügt
+export function freeToModel(parts: FreePart[], opts: { weldAll?: boolean } = {}): ModelDef | null {
+  // Importierte Körper laufen normalerweise nicht durch die CSG-Engine (große Netze), sondern werden als
+  // eigene Teile angefügt. Verschweißte Importe und Importe, in die ein Loch ragt, werden echt vereinigt.
+  const holesAll = parts.filter((p) => p.hole);
+  const inCsg = (p: FreePart): boolean => {
+    if (p.kind !== 'import') return true;
+    if (opts.weldAll) return true;
+    const tris = (getImported(String(p.e.ref ?? ''))?.mesh.tri.length ?? Infinity) / 3;
+    if (tris > 60000) return false;
+    if (p.e.welded) return true;
+    const b = worldBox(p);
+    return holesAll.some((h) => {
+      const hb = worldBox(h);
+      return [0, 1, 2].every((k) => hb.min[k] < b.max[k] && hb.max[k] > b.min[k]);
+    });
+  };
   const imports: ModelImport[] = parts
-    .filter((p) => p.kind === 'import' && !p.hole)
+    .filter((p) => p.kind === 'import' && !p.hole && !inCsg(p))
     .map((p) => ({ ref: String(p.e.ref ?? ''), name: p.name, slot: p.slot || 1, pos: [...p.pos] as V3, rot: [...p.rot] as V3, size: [...p.size] as V3 }));
-  const bodies = parts.filter((p) => !p.hole && p.kind !== 'import');
+  const bodies = parts.filter((p) => !p.hole && inCsg(p));
   if (!bodies.length && !imports.length) return null;
   const holeParts = parts.filter((p) => p.hole);
   const slots = [...new Set(bodies.map((b) => b.slot || 1))].sort((a, b) => a - b);

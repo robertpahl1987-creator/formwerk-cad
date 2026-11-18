@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { freeToModel, KINDS, localExtent, newPart, PRESETS, rasterHoles, worldBox, type FreePart, type Preset, type RasterOptions } from '../cad/free';
 import { outlineKey, outlineText } from '../cad/textOutline';
 import { saveFile } from '../platform/download';
-import { getImported, meshFromJson, meshToJson, readMeshFile, registerImported } from '../mesh/importMesh';
+import { getImported, hashId, meshFromJson, meshToJson, readMeshFile, registerImported, weldTriangles } from '../mesh/importMesh';
+import { buildParts } from '../cad/build';
+import { meshFromPolygons } from '../mesh/mesh';
+import { Euler, Matrix4, Vector3 } from 'three';
 import { freeBus, type FreeCommand } from '../state/freeBus';
 import { useStore } from '../state/store';
 import { Button, cx, SliderRow, Toggle } from './ui';
@@ -25,6 +28,9 @@ function load(): Saved {
   return { parts: [], next: 1 };
 }
 const round = (v: number) => Math.round(v * 100) / 100;
+const X_AXIS = new Vector3(1, 0, 0),
+  Y_AXIS = new Vector3(0, 1, 0),
+  Z_AXIS = new Vector3(0, 0, 1);
 
 /** Schrift-Umriss aktualisieren, wenn sich Text, Schriftart oder „Fett“ geändert haben. */
 function withOutline(p: FreePart): FreePart {
@@ -171,6 +177,60 @@ export function FreeMode() {
     }
   };
 
+  // ---- Zusammenschweißen: ausgewählte Teile (inkl. Importe und Löcher) zu EINEM festen Teil verschmelzen ----
+  const weld = (targets: FreePart[]) => {
+    const bodies = targets.filter((t) => !t.hole);
+    if (!bodies.length) return dispatch({ type: 'toast', kind: 'info', text: 'Zum Verschweißen mindestens ein Körper auswählen' });
+    const big = targets.find((t) => t.kind === 'import' && (getImported(String(t.e.ref))?.mesh.tri.length ?? 0) / 3 > 60000);
+    if (big) return dispatch({ type: 'toast', kind: 'err', text: `„${big.name}“ ist zu fein zum Verschweißen (über 60.000 Dreiecke). Es verschmilzt trotzdem im Slicer, wenn es leicht eintaucht.` });
+    dispatch({ type: 'busy', text: 'Schweiße zusammen …' });
+    setTimeout(async () => {
+      try {
+        const m = freeToModel(
+          targets.map((t) => ({ ...t, slot: 1 })),
+          { weldAll: true },
+        )!;
+        const out = buildParts(m, {}, { tol: state.settings.tol, fase: state.settings.fase }, { rx: 0, ry: 0 });
+        const t = out.placement.t;
+        const mesh = meshFromPolygons(out.parts.flatMap((p) => p.polys));
+        const soup = new Float64Array(mesh.tri.length * 3);
+        const min = [Infinity, Infinity, Infinity],
+          max = [-Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < mesh.tri.length; i++)
+          for (let k = 0; k < 3; k++) {
+            const v = mesh.pos[mesh.tri[i] * 3 + k] - t[k];
+            soup[i * 3 + k] = v;
+            min[k] = Math.min(min[k], v);
+            max[k] = Math.max(max[k], v);
+          }
+        const w = weldTriangles(soup);
+        const name = bodies.length === 1 && !targets.some((x) => x.hole) ? `${bodies[0].name} (fest)` : `Verschweißt ${data.next}`;
+        const im = { id: hashId(w.mesh), name, mesh: w.mesh, size: w.size };
+        await registerImported(im);
+        const np: FreePart = {
+          id: data.next,
+          kind: 'import',
+          name,
+          hole: false,
+          slot: bodies[0].slot || 1,
+          pos: [0, 1, 2].map((k) => round((min[k] + max[k]) / 2)) as FreePart['pos'],
+          rot: [0, 0, 0],
+          size: w.size,
+          e: { ref: im.id, welded: true },
+          lock: true,
+        };
+        const gone = new Set(targets.map((x) => x.id));
+        commit({ parts: [...parts.filter((p) => !gone.has(p.id)), np], next: data.next + 1 });
+        setSels([np.id]);
+        dispatch({ type: 'toast', kind: 'ok', text: `${targets.length} Teil${targets.length === 1 ? '' : 'e'} zu „${name}“ verschweißt – ↶ Rückgängig trennt wieder` });
+      } catch (e) {
+        dispatch({ type: 'toast', kind: 'err', text: `Verschweißen fehlgeschlagen: ${(e as Error).message}` });
+      } finally {
+        dispatch({ type: 'busy', text: null });
+      }
+    }, 40);
+  };
+
   const replace = (p: FreePart) => commit({ ...data, parts: parts.map((x) => (x.id === p.id ? p : x)) });
 
   const dropToBed = (p0: FreePart) => {
@@ -305,6 +365,38 @@ export function FreeMode() {
   }, [parts, sels, active]);
   const nextGroup = () => Math.max(0, ...parts.map((p) => p.group ?? 0)) + 1;
   const runCommand = (c: FreeCommand) => {
+    if (c.type === 'transform') {
+      if (!sels.length) return;
+      const ids0 = new Set(sels);
+      const D = Math.PI / 180;
+      commit({
+        ...data,
+        parts: parts.map((p) => {
+          if (!ids0.has(p.id)) return p;
+          const q = structuredClone(p);
+          if (c.move) for (let k = 0; k < 3; k++) q.pos[k] = round(q.pos[k] + c.move[k]);
+          if (c.rot) {
+            const { axis, deg, pivot } = c.rot;
+            const R = new Matrix4().makeRotationAxis(axis === 0 ? X_AXIS : axis === 1 ? Y_AXIS : Z_AXIS, deg * D);
+            // Position um den Drehpunkt drehen
+            const v = [q.pos[0] - pivot[0], q.pos[1] - pivot[1], q.pos[2] - pivot[2]];
+            const e = R.elements;
+            q.pos = [0, 1, 2].map((i) => round(pivot[i] + e[i] * v[0] + e[i + 4] * v[1] + e[i + 8] * v[2])) as FreePart['pos'];
+            // Ausrichtung: Welt-Drehung vor die bisherige (erst X, dann Y, dann Z = Three 'ZYX')
+            const cur = new Matrix4().makeRotationFromEuler(new Euler(q.rot[0] * D, q.rot[1] * D, q.rot[2] * D, 'ZYX'));
+            const eu = new Euler().setFromRotationMatrix(R.multiply(cur), 'ZYX');
+            const snap = (a: number) => {
+              const d = Math.round((a / D) * 10) / 10;
+              return Math.abs(d) < 0.05 ? 0 : d === -180 ? 180 : d;
+            };
+            q.rot = [snap(eu.x), snap(eu.y), snap(eu.z)];
+          }
+          return q;
+        }),
+      });
+      lastKey.current = '';
+      return;
+    }
     if (c.type === 'load') {
       undoStack.current = [];
       setData({ parts: c.parts.map(withOutline), next: c.parts.reduce((m, p) => Math.max(m, p.id), 0) + 1 });
@@ -412,6 +504,9 @@ export function FreeMode() {
       case 'undo':
         undo();
         return;
+      case 'weld':
+        weld(targets);
+        return;
     }
   };
   const cmdRef = useRef(runCommand);
@@ -481,6 +576,16 @@ export function FreeMode() {
             </button>
           ))}
         </div>
+        {sels.length > 0 && parts.some((p) => sels.includes(p.id) && !p.hole) && (
+          <div className="mt-3 rounded-lg border border-[#30363d] p-2.5 space-y-2">
+            <p className="text-[11.5px] text-slate-400 leading-snug">
+              In der 3D-Ansicht: <b className="text-slate-200">Teil ziehen</b> = verschieben, <b className="text-slate-200">farbige Ringe ziehen</b> = drehen (5°-Schritte, mit Umschalt 1°).
+            </p>
+            <Button variant="primary" className="w-full h-9 text-[12.5px]" onClick={() => weld(parts.filter((p) => sels.includes(p.id)))}>
+              🔥 {sels.length > 1 ? `${sels.length} Teile zusammenschweißen (ein Teil)` : 'Zu festem Teil verschweißen'}
+            </Button>
+          </div>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-3">
           <Button onClick={undo} className="h-9 text-[12.5px]">
             ↶ Rückgängig

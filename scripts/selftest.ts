@@ -261,6 +261,14 @@ await (async () => {
       const imp = r.parts.find((p) => p.name === 'Import: Logo');
       const ok2 = !!imp && imp.stats.manifold && r.total.min[2] > -1e-6 && Math.abs(r.total.max[2] - 6.7) < 0.05 && r.parts.length === 2;
       if (!ok2) fails++;
+      // Verschweißen: Platte + Logo als ein Körper (echte Vereinigung)
+      const welded = freeToModel([
+        mk({ id: 1, size: [80, 40, 4], pos: [0, 0, 2] }),
+        mk({ id: 2, kind: 'import', name: 'Logo', size: [im.size[0] * 1.5, im.size[1] * 1.5, 3], pos: [0, 0, 4 + 1.5 - 0.3], rot: [0, 0, 18], e: { ref: im.id } }),
+      ], { weldAll: true })!;
+      checks++;
+      if (welded.imports?.length) { fails++; console.log('✗ verschweißt: Import nicht in CSG'); }
+      check(`Import ${label}: verschweißt zu einem Teil`, welded, {});
       console.log(`${ok2 ? '✓' : '✗'} Import ${label}: Logo als eigener Körper (Slot ${imp?.slot}), Höhe ${(r.total.max[2] - r.total.min[2]).toFixed(2)} mm, ${r.parts.length} Teile`);
     } catch (e) {
       fails++;
