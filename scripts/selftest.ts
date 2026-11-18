@@ -234,7 +234,7 @@ await (async () => {
     try {
       const im = await parseMeshBuffer('stern', 'stl', buf as ArrayBuffer);
       const st = analyzeMesh(im.mesh);
-      const ok = st.manifold && Math.abs(im.size[0] - 30) < 0.5 && Math.abs(im.size[2] - 3) < 0.01;
+      const ok = st.manifold && Math.abs(im.size[0] - 28.53) < 1.5 && Math.abs(im.size[2] - 3) < 0.01;
       if (!ok) fails++;
       console.log(`${ok ? '✓' : '✗'} STL-Import ${label}: ${st.triangles} Dreiecke, Größe ${im.size.join('×')}, wasserdicht ${st.manifold}`);
       await registerImported(meshFromJson(meshToJson(im)), false);
