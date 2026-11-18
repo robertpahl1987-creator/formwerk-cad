@@ -4,9 +4,9 @@
  * Vorschau, Druck-Check, Mehrfarben, Aufteilen und Export genau wie bei
  * Vorlagen und KI-Modellen – ohne eigene Geometrie-Engine.
  */
-import type { CadNode, ModelDef } from './types';
+import type { CadNode, ModelDef, ModelImport } from './types';
 
-export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'hohlraum' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk';
+export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'hohlraum' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk' | 'import';
 export type V3 = [number, number, number];
 export type FreeValue = number | boolean | string;
 
@@ -124,6 +124,11 @@ export const KINDS: Record<FreeKind, KindDef> = {
       { key: 'c', label: 'Spiel', type: 'num', min: 0.15, max: 1, step: 0.05, unit: 'mm' },
     ],
     hint: 'Wird fertig beweglich gedruckt. Verbinde jedes Blatt nur mit einem Teil, sonst ist das Scharnier festgeklebt. Zu fest? Spiel um 0,1 mm erhöhen.',
+  },
+  import: {
+    size: true,
+    fields: [],
+    hint: 'Importierte Datei (STL/3MF/OBJ). Als Körper wird sie im Slicer mit deinem Modell zu einem Teil verschmolzen – lass sie dafür 0,2–0,5 mm ins Teil darunter eintauchen („Auf Teil darunter setzen“ macht das automatisch). Als Loch wird sie eingraviert (nur bis 60.000 Dreiecke).',
   },
   kugelgelenk: {
     size: false,
@@ -294,6 +299,8 @@ export function partShape(p: FreePart): CadNode {
       return hinge(e);
     case 'kugelgelenk':
       return ballJoint(e);
+    case 'import':
+      return { type: 'import', ref: String(e.ref ?? ''), size: [r3(sx), r3(sy), r3(sz)] };
   }
 }
 
@@ -406,8 +413,12 @@ function placed(p: FreePart): CadNode {
 
 /** Baut aus den Teilen ein normales Formwerk-Modell. */
 export function freeToModel(parts: FreePart[]): ModelDef | null {
-  const bodies = parts.filter((p) => !p.hole);
-  if (!bodies.length) return null;
+  // Importierte Körper laufen nicht durch die CSG-Engine (große Netze), sondern werden als eigene Teile angefügt
+  const imports: ModelImport[] = parts
+    .filter((p) => p.kind === 'import' && !p.hole)
+    .map((p) => ({ ref: String(p.e.ref ?? ''), name: p.name, slot: p.slot || 1, pos: [...p.pos] as V3, rot: [...p.rot] as V3, size: [...p.size] as V3 }));
+  const bodies = parts.filter((p) => !p.hole && p.kind !== 'import');
+  if (!bodies.length && !imports.length) return null;
   const holeParts = parts.filter((p) => p.hole);
   const slots = [...new Set(bodies.map((b) => b.slot || 1))].sort((a, b) => a - b);
   const group = (list: FreePart[]): CadNode => (list.length === 1 ? placed(list[0]) : { type: 'union', children: list.map(placed) });
@@ -428,8 +439,9 @@ export function freeToModel(parts: FreePart[]): ModelDef | null {
     const hs = holesFor(list);
     return hs.length ? { type: 'difference', children: [group(list), ...hs] } : group(list);
   };
-  const root: CadNode[] =
-    slots.length <= 1
+  const root: CadNode[] = !bodies.length
+    ? []
+    : slots.length <= 1
       ? [solid(bodies)]
       : slots.map((s) => ({ type: 'color', slot: s, name: `Farbe ${s}`, children: [solid(bodies.filter((b) => (b.slot || 1) === s))] }));
   return {
@@ -440,6 +452,7 @@ export function freeToModel(parts: FreePart[]): ModelDef | null {
     source: 'custom',
     templateId: 'frei',
     freeParts: parts,
+    ...(imports.length ? { imports } : {}),
   };
 }
 

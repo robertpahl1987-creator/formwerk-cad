@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { freeToModel, KINDS, localExtent, newPart, PRESETS, rasterHoles, worldBox, type FreePart, type Preset, type RasterOptions } from '../cad/free';
 import { outlineKey, outlineText } from '../cad/textOutline';
 import { saveFile } from '../platform/download';
+import { getImported, meshFromJson, meshToJson, readMeshFile, registerImported } from '../mesh/importMesh';
 import { freeBus, type FreeCommand } from '../state/freeBus';
 import { useStore } from '../state/store';
 import { Button, cx, SliderRow, Toggle } from './ui';
@@ -131,6 +132,45 @@ export function FreeMode() {
     lastKey.current = '';
   };
 
+  // ---- Fremde Datei (STL/3MF/OBJ) importieren ----
+  const importRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const importFile = async (f: File | undefined) => {
+    if (!f) return;
+    setImporting(true);
+    try {
+      const im = await readMeshFile(f);
+      const p: FreePart = { id: data.next, kind: 'import', name: im.name.slice(0, 30), hole: false, slot: 1, pos: [0, 0, 0], rot: [0, 0, 0], size: [...im.size], e: { ref: im.id }, lock: true };
+      const target = part && !part.hole ? part : null;
+      let msg = `„${p.name}“ importiert (${im.size.map((v) => v.toLocaleString('de-DE', { maximumFractionDigits: 1 })).join(' × ')} mm)`;
+      if (target) {
+        // auf das ausgewählte Teil setzen, bei Bedarf passend verkleinern, 0,3 mm eintauchen → verschmilzt im Slicer
+        const b = worldBox(target);
+        const fit = Math.min(1, (0.9 * (b.max[0] - b.min[0])) / p.size[0], (0.9 * (b.max[1] - b.min[1])) / p.size[1]);
+        if (fit < 0.999) {
+          p.size = p.size.map((v) => round(v * fit)) as FreePart['size'];
+          msg += ` – auf ${Math.round(fit * 100)} % verkleinert`;
+        }
+        p.pos = [round((b.min[0] + b.max[0]) / 2), round((b.min[1] + b.max[1]) / 2), round(b.max[2] + p.size[2] / 2 - 0.3)];
+        msg += `, auf „${target.name}“ gesetzt`;
+      } else {
+        const bodies = parts.filter((x) => !x.hole);
+        if (bodies.length) p.pos[0] = Math.round(Math.max(...bodies.map((x) => worldBox(x).max[0])) + p.size[0] / 2 + 5);
+        p.pos[2] = round(p.size[2] / 2);
+        msg += ' – Tipp: erst ein Teil auswählen, dann landet der Import direkt darauf';
+      }
+      commit({ parts: [...parts, p], next: data.next + 1 });
+      setSel(p.id);
+      lastKey.current = '';
+      const tris = im.mesh.tri.length / 3;
+      dispatch({ type: 'toast', kind: 'ok', text: msg + (tris > 300000 ? ` (${Math.round(tris / 1000)}k Dreiecke – das Rechnen dauert etwas)` : '') });
+    } catch (e) {
+      dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const replace = (p: FreePart) => commit({ ...data, parts: parts.map((x) => (x.id === p.id ? p : x)) });
 
   const dropToBed = (p0: FreePart) => {
@@ -199,7 +239,10 @@ export function FreeMode() {
   };
   const saveProject = async () => {
     try {
-      const r = await saveFile('mein-formwerk-projekt.json', JSON.stringify(data, null, 1));
+      // importierte Dateien mit einbetten, damit das Projekt auch auf anderen Geräten vollständig ist
+      const refs = [...new Set(data.parts.filter((p) => p.kind === 'import').map((p) => String(p.e.ref)))];
+      const meshes = refs.map((r) => getImported(r)).filter((m) => !!m).map((m) => meshToJson(m!));
+      const r = await saveFile('mein-formwerk-projekt.json', JSON.stringify(meshes.length ? { ...data, meshes } : data, null, 1));
       if (r !== 'declined') dispatch({ type: 'toast', kind: 'ok', text: 'Projekt gespeichert' });
     } catch (e) {
       dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
@@ -208,8 +251,9 @@ export function FreeMode() {
   const loadProject = async (f: File | undefined) => {
     if (!f) return;
     try {
-      const d = JSON.parse(await f.text()) as Saved;
+      const d = JSON.parse(await f.text()) as Saved & { meshes?: Parameters<typeof meshFromJson>[0][] };
       if (!Array.isArray(d.parts)) throw new Error('kein Projekt');
+      for (const m of d.meshes ?? []) await registerImported(meshFromJson(m));
       commit({ parts: d.parts.map(withOutline), next: d.next || d.parts.length + 1 });
       setSel(null);
       dispatch({ type: 'toast', kind: 'ok', text: 'Projekt geladen' });
@@ -395,7 +439,16 @@ export function FreeMode() {
               {pr.label}
             </button>
           ))}
+          <button
+            onClick={() => importRef.current?.click()}
+            disabled={importing}
+            className="col-span-3 sm:col-span-5 flex items-center justify-center gap-2 rounded-lg border border-dashed border-[#00ae42] bg-[#00ae42]/5 py-2.5 text-[12.5px] text-[#3ddc84] hover:bg-[#00ae42]/15 disabled:opacity-50"
+          >
+            {importing ? '⏳ Lese Datei …' : '📥 STL / 3MF / OBJ importieren (z. B. von MakerWorld)'}
+          </button>
+          <input ref={importRef} type="file" accept=".stl,.3mf,.obj,model/stl,model/3mf" className="hidden" onChange={(e) => (importFile(e.target.files?.[0]), (e.target.value = ''))} />
         </div>
+        <p className="text-[11px] text-slate-500 mt-1.5">Tipp: Wähle zuerst das Teil aus (z. B. dein Schild) – der Import wird dann passend darauf gesetzt.</p>
       </div>
 
       <div>

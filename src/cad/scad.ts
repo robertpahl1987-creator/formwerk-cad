@@ -53,6 +53,8 @@ function node(n: CadNode, ind: string): string {
       return `${ind}linear_extrude(height = ${e(n.h)}, center = ${n.center ? 'true' : 'false'}) {\n${shape(n.shape, ind + '  ')}${ind}}\n`;
     case 'revolve':
       return `${ind}rotate_extrude(angle = ${n.angle !== undefined ? e(n.angle) : '360'}${n.fn !== undefined ? `, $fn = ${e(n.fn)}` : ''}) {\n${shape(n.shape, ind + '  ')}${ind}}\n`;
+    case 'import':
+      return `${ind}resize(${vec(n.size)}) import("${n.ref}.stl", center = true); // importierte Datei – bitte daneben ablegen\n`;
     case 'teardrop':
       return `${ind}fw_teardrop(${n.r !== undefined ? e(n.r) : `(${e(n.d as Expr)}) / 2`}, ${e(n.h)}, "${n.axis ?? 'x'}");\n`;
     case 'union':

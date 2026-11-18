@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
+import { Component, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
 import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, ParamPanel, PrintCheck, SplitPanel } from './components/ModelPanels';
@@ -15,6 +15,7 @@ import { checkApkUpdate, isNativeApp, openApkDownload } from './platform/native'
 import { explodedParts, runPipeline } from './state/pipeline';
 import { useStore, type Mode, type Step } from './state/store';
 import { Viewer } from './viewer/Viewer';
+import { importVersion, loadImported, subscribeImports } from './mesh/importMesh';
 
 // ------------------------------------------------------------ Installation (PWA)
 interface BIPEvent extends Event {
@@ -466,6 +467,11 @@ export function App() {
   const { state, dispatch } = useStore();
   const desktop = useMedia('(min-width: 1024px)');
   const s = state.settings;
+  // Importierte Dateien (STL/3MF) aus dem Gerätespeicher laden; danach neu bauen
+  const importVer = useSyncExternalStore(subscribeImports, importVersion, importVersion);
+  useEffect(() => {
+    void loadImported();
+  }, []);
 
   // Modell bei jeder Änderung neu berechnen (entprellt)
   useEffect(() => {
@@ -494,7 +500,7 @@ export function App() {
       }
     }, 90);
     return () => clearTimeout(t);
-  }, [state.model, state.values, state.orientation, state.zonesOn, state.zones, s.tol, s.fase, s.palette, s.material, s.profile, s.layer, s.overhangDeg, s.bedSize, s.bedHeight, s.split, s.hollow, dispatch]);
+  }, [importVer, state.model, state.values, state.orientation, state.zonesOn, state.zones, s.tol, s.fase, s.palette, s.material, s.profile, s.layer, s.overhangDeg, s.bedSize, s.bedHeight, s.split, s.hollow, dispatch]);
 
   const b = state.build;
   const asmOn = state.asm.view !== 'off' && state.asm.items.length > 0;
@@ -506,7 +512,7 @@ export function App() {
       console.error(e);
       return null;
     }
-  }, [asmOn, state.asm.items, state.asm.view, s]);
+  }, [asmOn, state.asm.items, state.asm.view, s, importVer]);
   const display = useMemo(() => {
     if (asmDisplay) return asmDisplay;
     if (!b) return null;

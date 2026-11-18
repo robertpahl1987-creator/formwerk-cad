@@ -8,6 +8,7 @@ import { bool, ExprError, num, type Scope } from './expr';
 import { fillText, normalizeText } from './text';
 import { splitParts, type SplitOptions, type SplitReport } from './split';
 import { analyzeMesh, meshFromPolygons } from '../mesh/mesh';
+import { getImported } from '../mesh/importMesh';
 import type { CadNode, ColorZone, Globals, ModelDef, Orientation, Shape2D, Value, Vec2, Vec3 } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -245,6 +246,22 @@ function build(n: CadNode, ctx: Ctx): Geom[] {
           n.maxW !== undefined ? num(n.maxW, s, 'text.maxW') : undefined,
         ),
       ];
+    case 'import': {
+      const im = getImported(n.ref);
+      if (!im) throw new BuildError('Eine importierte Datei fehlt auf diesem Gerät – bitte erneut importieren');
+      const tris = im.mesh.tri.length / 3;
+      if (tris > 60000) throw new BuildError(`„${im.name}“ ist mit ${tris.toLocaleString('de-DE')} Dreiecken zu fein, um es als Loch zu verwenden (max. 60.000) – als Körper geht es.`);
+      const sz = v3(n.size, s, 'import.size');
+      const k = [0, 1, 2].map((i) => (im.size[i] > 0 ? sz[i] / im.size[i] : 1));
+      const polys: number[][][] = [];
+      const P3 = im.mesh.pos;
+      for (let t = 0; t < im.mesh.tri.length; t += 3)
+        polys.push([0, 1, 2].map((j) => {
+          const i = im.mesh.tri[t + j] * 3;
+          return [P3[i] * k[0], P3[i + 1] * k[1], P3[i + 2] * k[2]];
+        }));
+      return [G.geom3.fromPoints(polys)];
+    }
     case 'color': {
       // Innerhalb von CSG-Operationen nur Gruppierung; Farbtrennung passiert auf oberster Ebene.
       const u = unionAll(children(n.children, ctx));

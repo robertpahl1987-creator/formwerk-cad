@@ -1,4 +1,7 @@
 import { buildParts, type HollowOptions } from '../cad/build';
+import { rotV } from '../cad/assembly';
+import { getImported } from '../mesh/importMesh';
+import type { ModelImport } from '../cad/types';
 import type { SplitOptions, SplitReport } from '../cad/split';
 import type { ColorZone, FilamentSlot, Globals, ModelDef, Orientation, Value } from '../cad/types';
 import {
@@ -57,6 +60,8 @@ export interface BuildResult {
   plates?: PlateResult[];
   splitReport?: SplitReport;
   hollowNote?: string;
+  /** Hinweise zu importierten Dateien */
+  importNote?: string;
 }
 
 export interface PipelineSettings {
@@ -125,14 +130,55 @@ const ORIENTS: [number, number][] = [
   [0, -90],
 ];
 
+/** Importiertes Netz in Modellkoordinaten: skalieren, drehen (X→Y→Z), verschieben. */
+export function importToMesh(im: ModelImport): Mesh {
+  const src = getImported(im.ref);
+  if (!src) throw new Error(`Die importierte Datei „${im.name}“ fehlt auf diesem Gerät – bitte erneut importieren`);
+  const k = [0, 1, 2].map((i) => (src.size[i] > 0 ? im.size[i] / src.size[i] : 1));
+  const p = new Float64Array(src.mesh.pos.length);
+  const rot = im.rot.some((v) => v);
+  for (let i = 0; i < p.length; i += 3) {
+    let v: [number, number, number] = [src.mesh.pos[i] * k[0], src.mesh.pos[i + 1] * k[1], src.mesh.pos[i + 2] * k[2]];
+    if (rot) v = rotV(v, im.rot);
+    p[i] = v[0] + im.pos[0];
+    p[i + 1] = v[1] + im.pos[1];
+    p[i + 2] = v[2] + im.pos[2];
+  }
+  // Spiegeln durch negative Skalierung dreht die Flächen um
+  if (k[0] * k[1] * k[2] < 0) {
+    const t = new Uint32Array(src.mesh.tri);
+    for (let i = 0; i < t.length; i += 3) [t[i + 1], t[i + 2]] = [t[i + 2], t[i + 1]];
+    return { pos: p, tri: t };
+  }
+  return { pos: p, tri: src.mesh.tri };
+}
+
 export function runPipeline(model: ModelDef, values: Record<string, Value>, s: PipelineSettings): BuildResult {
   const t0 = performance.now();
   const bed = { size: s.bedSize, height: s.bedHeight };
-  const out = buildParts(model, values, s.globals, s.orientation, s.zones, s.split.enabled ? { opts: s.split, bed } : undefined, s.hollow);
+  const imports = model.imports ?? [];
+  // Aufteilen arbeitet nur mit CAD-Geometrie – mit Importen bleibt das Modell am Stück
+  const splitOn = s.split.enabled && !imports.length;
+  const out = model.root.length
+    ? buildParts(model, values, s.globals, s.orientation, s.zones, splitOn ? { opts: s.split, bed } : undefined, s.hollow)
+    : { parts: [], placement: { rx: s.orientation.rx, ry: s.orientation.ry, t: [0, 0, 0] as [number, number, number] }, pieces: undefined, splitReport: undefined, hollowNote: undefined };
   const density = MATERIALS.find((m) => m.id === s.material)?.density ?? 1.24;
   const mk = (slot: number, name: string, mesh: Mesh): PartResult => ({ slot, name, color: slotColor(s.palette, slot), mesh, stats: analyzeMesh(mesh, s.overhangDeg, 0) });
 
-  const parts: PartResult[] = out.parts.map((p) => mk(p.slot, p.name, meshFromPolygons(p.polys)));
+  let parts: PartResult[] = out.parts.map((p) => mk(p.slot, p.name, meshFromPolygons(p.polys)));
+  if (imports.length) {
+    // Importe genauso ausrichten wie das CAD-Modell, danach alles gemeinsam aufs Bett legen
+    const t = out.placement.t;
+    const im = imports.map((x) => ({ x, mesh: translateMesh(rotateMesh(importToMesh(x), s.orientation.rx, s.orientation.ry), t) }));
+    const b = bounds([...parts.map((p) => p.mesh), ...im.map((i) => i.mesh)]);
+    const d: [number, number, number] = [-(b.min[0] + b.max[0]) / 2, -(b.min[1] + b.max[1]) / 2, -b.min[2]];
+    const moved = Math.abs(d[0]) + Math.abs(d[1]) + Math.abs(d[2]) > 1e-9;
+    parts = [
+      ...parts.map((p) => (moved ? mk(p.slot, p.name, translateMesh(p.mesh, d)) : p)),
+      ...im.map((i) => mk(i.x.slot, `Import: ${i.x.name}`, moved ? translateMesh(i.mesh, d) : i.mesh)),
+    ];
+    out.placement = { ...out.placement, t: [t[0] + d[0], t[1] + d[1], t[2] + d[2]] };
+  }
   const total = analyzeMesh(mergeMeshes(parts.map((p) => p.mesh)), s.overhangDeg);
   suppressSupportedOverhangs(parts);
   total.overhangArea = parts.reduce((a, p) => a + p.stats.overhangArea, 0);
@@ -157,6 +203,11 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
     purgeGrams: swaps * 0.4,
     hollowNote: out.hollowNote,
   };
+  if (imports.length) {
+    const open = parts.filter((p) => p.name.startsWith('Import: ') && !p.stats.manifold);
+    if (open.length) res.importNote = `${open.map((p) => `„${p.name.slice(8)}“`).join(', ')} hat offene Kanten – Bambu Studio/Orca reparieren das beim Laden meist automatisch.`;
+    if (s.split.enabled) res.importNote = (res.importNote ? res.importNote + ' ' : '') + 'Aufteilen auf mehrere Platten geht mit importierten Dateien noch nicht – nutze dafür die Baugruppe.';
+  }
 
   if (out.pieces) {
     res.splitReport = out.splitReport;

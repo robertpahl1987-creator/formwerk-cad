@@ -11,6 +11,11 @@ import type { ModelDef, Value } from '../src/cad/types';
 import { analyzeMesh, meshFromPolygons, suppressSupportedOverhangs } from '../src/mesh/mesh';
 import { photoModel } from '../src/photo/photoModel';
 import { pinsModel, planJoints, DEFAULT_ASM_JOINTS, type AsmItem } from '../src/cad/assembly';
+import { parseMeshBuffer, registerImported, meshToJson, meshFromJson } from '../src/mesh/importMesh';
+import { stlBinary } from '../src/mesh/export';
+import { runPipeline } from '../src/state/pipeline';
+import { DEFAULT_HOLLOW } from '../src/cad/build';
+import { PROFILES } from '../src/mesh/mesh';
 import { freeToModel, newPart, PRESETS, type FreePart } from '../src/cad/free';
 
 let fails = 0;
@@ -216,6 +221,42 @@ for (const type of ['duebel', 'steck'] as const) {
   }
   if (res.pins) check(`Baugruppe ${type}: Dübelplatte`, pinsModel(res.pins, 6, 8), {});
 }
+
+// ---------------------------------------------------------------- Import (STL)
+await (async () => {
+  // „Fremde“ Datei: Stern aus der CAD-Engine als STL exportieren und wieder einlesen
+  const star: ModelDef = { name: 'Stern', params: [], source: 'custom', root: [{ type: 'extrude', h: 3, shape: { type: 'polygon', points: Array.from({ length: 10 }, (_, i) => [Math.round((i % 2 ? 6 : 15) * Math.cos((i * Math.PI) / 5) * 100) / 100, Math.round((i % 2 ? 6 : 15) * Math.sin((i * Math.PI) / 5) * 100) / 100] as [number, number]) } }] };
+  const sp = buildParts(star, {}, { tol: 0.2, fase: true }, { rx: 0, ry: 0 }).parts[0].polys;
+  const bin = stlBinary([meshFromPolygons(sp)]);
+  const ascii = 'solid x\n' + sp.flatMap((pl) => Array.from({ length: pl.length - 2 }, (_, k) => `facet normal 0 0 0\nouter loop\n${[pl[0], pl[k + 1], pl[k + 2]].map((v) => `vertex ${v.join(' ')}`).join('\n')}\nendloop\nendfacet`)).join('\n') + '\nendsolid x\n';
+  for (const [label, buf] of [['binär', bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength)], ['ASCII', new TextEncoder().encode(ascii).buffer]] as const) {
+    checks++;
+    try {
+      const im = await parseMeshBuffer('stern', 'stl', buf as ArrayBuffer);
+      const st = analyzeMesh(im.mesh);
+      const ok = st.manifold && Math.abs(im.size[0] - 30) < 0.5 && Math.abs(im.size[2] - 3) < 0.01;
+      if (!ok) fails++;
+      console.log(`${ok ? '✓' : '✗'} STL-Import ${label}: ${st.triangles} Dreiecke, Größe ${im.size.join('×')}, wasserdicht ${st.manifold}`);
+      await registerImported(meshFromJson(meshToJson(im)), false);
+      const mk = (o: Partial<FreePart>): FreePart => ({ id: 1, kind: 'quader', name: 'x', hole: false, slot: 1, pos: [0, 0, 0], rot: [0, 0, 0], size: [10, 10, 10], e: {}, ...o });
+      const fm = freeToModel([
+        mk({ id: 1, size: [80, 40, 4], pos: [0, 0, 2] }),
+        mk({ id: 2, kind: 'import', name: 'Logo', size: [im.size[0] * 1.5, im.size[1] * 1.5, 3], pos: [0, 0, 4 + 1.5 - 0.3], rot: [0, 0, 18], e: { ref: im.id }, slot: 2 }),
+        mk({ id: 3, kind: 'import', name: 'Gravur', hole: true, size: [20, 20, 1.2], pos: [30, 0, 3.6], e: { ref: im.id } }),
+      ])!;
+      check(`Import ${label}: Platte mit eingraviertem Import`, fm, {});
+      checks++;
+      const r = runPipeline(fm, {}, { globals: { tol: 0.2, fase: true }, orientation: { rx: 0, ry: 0 }, zones: null, palette: [{ slot: 1, name: 'A', color: '#fff' }, { slot: 2, name: 'B', color: '#f00' }], material: 'pla', profile: PROFILES.standard, layer: 0.2, overhangDeg: 45, bedSize: 256, bedHeight: 256, split: { ...DEFAULT_SPLIT, enabled: false }, hollow: DEFAULT_HOLLOW });
+      const imp = r.parts.find((p) => p.name === 'Import: Logo');
+      const ok2 = !!imp && imp.stats.manifold && r.total.min[2] > -1e-6 && Math.abs(r.total.max[2] - 6.7) < 0.05 && r.parts.length === 2;
+      if (!ok2) fails++;
+      console.log(`${ok2 ? '✓' : '✗'} Import ${label}: Logo als eigener Körper (Slot ${imp?.slot}), Höhe ${(r.total.max[2] - r.total.min[2]).toFixed(2)} mm, ${r.parts.length} Teile`);
+    } catch (e) {
+      fails++;
+      console.log(`✗ STL-Import ${label}: FEHLER ${(e as Error).message}`);
+    }
+  }
+})();
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);
 if (fails) process.exit(1);

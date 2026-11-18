@@ -61,6 +61,8 @@ export type CadNode =
    * vorherigen Teilen abgezogen → saubere Einlagen ohne Überschneidung).
    */
   | { type: 'color'; slot: Expr; name?: string; children: CadNode[] }
+  /** importierte Datei (STL/3MF/OBJ), zentriert und auf `size` skaliert – nur aus „Frei bauen“ */
+  | { type: 'import'; ref: string; size: Vec3 }
   | { type: 'if'; cond: Expr; then: CadNode[]; else?: CadNode[] }
   | { type: 'for'; var: string; from: Expr; to: Expr; step?: Expr; children: CadNode[] };
 
@@ -98,6 +100,17 @@ export interface ModelDef {
   mods?: { sub: CadNode[]; add: CadNode[] };
   /** Frei gebaut: die Bauteile, aus denen das Modell entstanden ist (zum Wiederöffnen) */
   freeParts?: unknown[];
+  /** Importierte Dateien als eigene Körper (werden im Slicer mit dem Modell verschmolzen) */
+  imports?: ModelImport[];
+}
+
+export interface ModelImport {
+  ref: string;
+  name: string;
+  slot: number;
+  pos: [number, number, number];
+  rot: [number, number, number];
+  size: [number, number, number];
 }
 
 export interface Orientation {

@@ -533,6 +533,7 @@ export function PrintCheck() {
         <Stat label="Druckzeit (Schätzung)" value={hm(b.estimate.minutes)} />
         <Stat label={`Überhänge > ${state.settings.overhangDeg}°`} value={overCm2 < 0.05 ? '✓ keine' : `${g1(overCm2)} cm²`} tone={overCm2 < 0.05 ? 'ok' : overCm2 < 2 ? 'warn' : 'bad'} />
       </div>
+      {b.importNote && <p className="text-[12px] text-amber-300">⚠ {b.importNote}</p>}
       {!b.fitsBed && !b.pieces && (
         <Button className="w-full" onClick={() => dispatch({ type: 'settings', patch: { split: { ...state.settings.split, enabled: true } } })}>
           ✂️ Automatisch auf mehrere Platten aufteilen
