@@ -3,6 +3,7 @@ import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
 import { ColorPanel, ExportPanel, Library, MaterialPanel, ParamPanel, PrintCheck, SplitPanel } from './components/ModelPanels';
 import { EditPanel } from './components/EditPanel';
+import { FreeMode } from './components/FreeMode';
 import { PhotoMode } from './components/PhotoMode';
 import { abortRef, TextMode } from './components/TextMode';
 import { cx, SliderRow, useMedia } from './components/ui';
@@ -77,11 +78,13 @@ const MODES: [Mode, string][] = [
   ['text', '✍️ Text → CAD'],
   ['photo', '📷 Foto → CAD'],
   ['library', '📚 Vorlagen'],
+  ['free', '✏️ Frei bauen'],
 ];
 
 function PanelContent() {
   const { state, dispatch } = useStore();
   const [repairing, setRepairing] = useState(false);
+  const isFree = state.model?.templateId === 'frei';
   const repair = async () => {
     if (!state.model || !state.buildError) return;
     setRepairing(true);
@@ -98,7 +101,7 @@ function PanelContent() {
   return (
     <>
       <div className="px-4 pt-4 pb-4 border-b border-[#21262d]">
-        <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-[#0d1117] border border-[#21262d] mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 rounded-xl bg-[#0d1117] border border-[#21262d] mb-4">
           {MODES.map(([m, l]) => (
             <button key={m} onClick={() => dispatch({ type: 'mode', mode: m })} className={cx('h-9 rounded-lg text-[12.5px] font-medium transition-colors', state.mode === m ? 'bg-[#00ae42] text-white' : 'text-slate-400 hover:text-white')}>
               {l}
@@ -114,21 +117,24 @@ function PanelContent() {
         <div className={state.mode === 'library' ? '' : 'hidden'}>
           <Library />
         </div>
+        <div className={state.mode === 'free' ? '' : 'hidden'}>
+          <FreeMode />
+        </div>
       </div>
       {state.buildError && (
         <div className="m-4 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-[13px] text-red-200 space-y-2">
           <div>
             <b>Modell kann nicht gebaut werden:</b> {state.buildError}
           </div>
-          {state.model && state.model.source !== 'template' && (
+          {state.model && state.model.source !== 'template' && state.model.templateId !== 'frei' && (
             <button onClick={repair} disabled={repairing} className="text-[12px] underline text-red-100">
               {repairing ? 'KI repariert …' : 'Von der KI reparieren lassen'}
             </button>
           )}
         </div>
       )}
-      <EditPanel />
-      <ParamPanel />
+      {!isFree && <EditPanel />}
+      {!isFree && <ParamPanel />}
       <PrintCheck />
       <SplitPanel />
       <ColorPanel />

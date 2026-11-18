@@ -10,6 +10,7 @@ import { defaultValues } from '../src/cad/validate';
 import type { ModelDef, Value } from '../src/cad/types';
 import { analyzeMesh, meshFromPolygons, suppressSupportedOverhangs } from '../src/mesh/mesh';
 import { photoModel } from '../src/photo/photoModel';
+import { freeToModel, newPart, PRESETS, type FreePart } from '../src/cad/free';
 
 let fails = 0;
 let checks = 0;
@@ -87,6 +88,33 @@ const pm = photoModel(
 );
 check('foto teil', pm, { ...defaultValues(pm), mode: 0 });
 check('foto negativform', pm, { ...defaultValues(pm), mode: 1 });
+
+// Frei bauen: jede Form einzeln, dazu Kombinationen mit Löchern, Text, Gelenken und zwei Farben
+{
+  let id = 1;
+  const mk = (label: string, patch: Partial<FreePart> = {}): FreePart => ({ ...newPart(PRESETS.find((p) => p.label === label)!, id++), ...patch });
+  for (const pr of PRESETS) {
+    const p = mk(pr.label, { hole: false });
+    check(`frei ${pr.label}`, freeToModel([p])!, {});
+  }
+  const platte = mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } });
+  check('frei Platte + Text erhaben + Gravur + Löcher (2 Farben)', freeToModel([
+    platte,
+    mk('Text', { pos: [0, 6, 4.7], slot: 2, e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } }),
+    mk('Text', { hole: true, pos: [0, -10, 3.6], e: { text: 'Robert', hoehe: 6, dicke: 1, strich: 0 } }),
+    mk('Schraubloch', { pos: [-30, 0, 2], e: { d: 4, k: 8, L: 4 } }),
+    mk('Magnetloch', { pos: [30, 0, 1.6] }),
+  ])!, {});
+  check('frei Scharnier an zwei Platten', freeToModel([
+    mk('Scharnier', { pos: [0, 0, 4] }),
+    mk('Quader', { size: [40, 20, 2.4], pos: [0, -(4 + 0.4 + 15) - 9, 1.2] }),
+  ])!, {});
+  check('frei gedrehter Keil + Sechskant-Loch + Kugelgelenk', freeToModel([
+    mk('Keil', { rot: [0, 0, 45], pos: [0, 0, 5] }),
+    mk('Sechskant', { hole: true, pos: [0, 0, 5] }),
+    mk('Kugelgelenk', { pos: [40, 0, 15] }),
+  ])!, {});
+}
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);
 if (fails) process.exit(1);
