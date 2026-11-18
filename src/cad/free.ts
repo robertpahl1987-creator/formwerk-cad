@@ -23,6 +23,8 @@ export interface FreePart {
   size: V3;
   e: Record<string, FreeValue>;
   lock?: boolean;
+  /** Zusammengefügte Teile teilen eine Gruppen-Nummer und bewegen sich gemeinsam */
+  group?: number;
   /** Nur Text: vorberechnete Schrift-Umrisse (Höhe 1, zentriert) */
   outline?: TextOutline | null;
 }

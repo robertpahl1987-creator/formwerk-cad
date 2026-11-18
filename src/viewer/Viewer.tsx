@@ -1,11 +1,23 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { localExtent, type FreePart } from '../cad/free';
 import type { PartResult } from '../state/pipeline';
 import type { ViewOpts } from '../state/store';
 
+/** Frei-bauen-Teile zum Anklicken (Hüllboxen) und Anzeigen negativer Teile. */
+export interface FreeOverlay {
+  parts: FreePart[];
+  sel: number[];
+  /** Verschiebung Modell → Druckbett (aus der Platzierung) */
+  offset: [number, number, number];
+}
+
 interface Props {
   parts: PartResult[] | null;
+  overlay?: FreeOverlay | null;
+  onPick?: (id: number | null, additive: boolean) => void;
+  onMenu?: (id: number | null, x: number, y: number, at: [number, number] | null) => void;
   view: ViewOpts;
   bedSize: number;
   modelVersion: number;
@@ -19,6 +31,7 @@ interface Ctx3 {
   bed: THREE.Group;
   model: THREE.Group;
   dims: THREE.Group;
+  overlay: THREE.Group;
   plane: THREE.Plane;
   raf: number;
   bbox: THREE.Box3 | null;
@@ -130,12 +143,26 @@ function dimension(a: THREE.Vector3, b: THREE.Vector3, ext: [THREE.Vector3, THRE
   return g;
 }
 
+/** Hüllbox eines Frei-bauen-Teils: Mittelpunkt, Drehung (erst X, dann Y, dann Z), halbe Kanten. */
+function obb(p: FreePart, offset: [number, number, number]) {
+  const ext = localExtent(p);
+  const d = Math.PI / 180;
+  const rot = new THREE.Matrix3().setFromMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(p.rot[0] * d, p.rot[1] * d, p.rot[2] * d, 'ZYX')));
+  return {
+    center: new THREE.Vector3(p.pos[0] + offset[0], p.pos[1] + offset[1], p.pos[2] + offset[2]),
+    rot,
+    half: new THREE.Vector3(ext[0] / 2, ext[1] / 2, ext[2] / 2),
+  };
+}
+
 const fmt = (n: number) => `${(Math.round(n * 10) / 10).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mm`;
 
-export function Viewer({ parts, view, bedSize, modelVersion }: Props) {
+export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const ctx = useRef<Ctx3 | null>(null);
   const lastVersion = useRef(-1);
+  const live = useRef({ overlay, onPick, onMenu });
+  live.current = { overlay, onPick, onMenu };
 
   // Initialisierung
   useEffect(() => {
@@ -168,8 +195,101 @@ export function Viewer({ parts, view, bedSize, modelVersion }: Props) {
     const bed = new THREE.Group();
     const model = new THREE.Group();
     const dims = new THREE.Group();
-    scene.add(bed, model, dims);
-    const c: Ctx3 = { renderer, scene, camera, controls, bed, model, dims, plane: new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), raf: 0, bbox: null };
+    const overlayG = new THREE.Group();
+    scene.add(bed, model, dims, overlayG);
+    const c: Ctx3 = { renderer, scene, camera, controls, bed, model, dims, overlay: overlayG, plane: new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), raf: 0, bbox: null };
+
+    // ---- Anklicken & Rechtsklick (nur wenn Frei-bauen-Teile vorhanden) ----
+    const ray = new THREE.Raycaster();
+    const hit = (clientX: number, clientY: number): { id: number | null; at: [number, number] | null } => {
+      const ov = live.current.overlay;
+      const r = renderer.domElement.getBoundingClientRect();
+      ray.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), camera);
+      const o = ray.ray.origin,
+        d = ray.ray.direction;
+      let at: [number, number] | null = null;
+      if (Math.abs(d.z) > 1e-9) {
+        const t0 = -o.z / d.z;
+        if (t0 > 0) at = [o.x + d.x * t0 - (ov?.offset[0] ?? 0), o.y + d.y * t0 - (ov?.offset[1] ?? 0)];
+      }
+      if (!ov) return { id: null, at };
+      let best: { id: number; t: number } | null = null;
+      for (const p of ov.parts) {
+        const { center, rot, half } = obb(p, ov.offset);
+        const inv = rot.clone().transpose();
+        const lo = o.clone().sub(center).applyMatrix3(inv);
+        const ld = d.clone().applyMatrix3(inv);
+        let tmin = -Infinity,
+          tmax = Infinity;
+        let miss = false;
+        for (const k of ['x', 'y', 'z'] as const) {
+          const h = half[k] + 0.5;
+          if (Math.abs(ld[k]) < 1e-12) {
+            if (Math.abs(lo[k]) > h) miss = true;
+            continue;
+          }
+          let t1 = (-h - lo[k]) / ld[k],
+            t2 = (h - lo[k]) / ld[k];
+          if (t1 > t2) [t1, t2] = [t2, t1];
+          tmin = Math.max(tmin, t1);
+          tmax = Math.min(tmax, t2);
+        }
+        if (miss || tmax < Math.max(tmin, 0)) continue;
+        const t = Math.max(tmin, 0);
+        // Körper vor Löchern bevorzugen, wenn gleich weit
+        const score = t + (p.hole ? 0.01 : 0);
+        if (!best || score < best.t) best = { id: p.id, t: score };
+      }
+      return { id: best?.id ?? null, at };
+    };
+    let down: { x: number; y: number; t: number; touch: boolean } | null = null;
+    let longTimer: ReturnType<typeof setTimeout> | null = null;
+    let longFired = false;
+    let rightDown: { x: number; y: number } | null = null;
+    const el = renderer.domElement;
+    const onDown = (e: PointerEvent) => {
+      if (e.button === 2) rightDown = { x: e.clientX, y: e.clientY };
+      down = { x: e.clientX, y: e.clientY, t: performance.now(), touch: e.pointerType === 'touch' };
+      longFired = false;
+      if (e.pointerType === 'touch' && live.current.onMenu && live.current.overlay?.parts.length) {
+        longTimer = setTimeout(() => {
+          if (!down) return;
+          longFired = true;
+          const h = hit(down.x, down.y);
+          live.current.onMenu?.(h.id, down.x, down.y, h.at);
+        }, 550);
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8 && longTimer) {
+        clearTimeout(longTimer);
+        longTimer = null;
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      if (longTimer) clearTimeout(longTimer);
+      longTimer = null;
+      const d0 = down;
+      down = null;
+      if (!d0 || longFired || e.button !== 0) return;
+      if (Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 5 || performance.now() - d0.t > 600) return;
+      if (!live.current.overlay?.parts.length || !live.current.onPick) return;
+      const h = hit(e.clientX, e.clientY);
+      live.current.onPick(h.id, e.ctrlKey || e.metaKey || e.shiftKey);
+    };
+    const onCtx = (e: MouseEvent) => {
+      if (!live.current.onMenu || !live.current.overlay) return;
+      e.preventDefault();
+      // Rechte Maustaste zum Verschieben der Ansicht benutzt → kein Menü
+      if (rightDown && Math.hypot(e.clientX - rightDown.x, e.clientY - rightDown.y) > 6) return;
+      rightDown = null;
+      const h = hit(e.clientX, e.clientY);
+      live.current.onMenu(h.id, e.clientX, e.clientY, h.at);
+    };
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('contextmenu', onCtx);
     ctx.current = c;
     const resize = () => {
       const w = el.clientWidth || 1,
@@ -190,6 +310,10 @@ export function Viewer({ parts, view, bedSize, modelVersion }: Props) {
     };
     loop();
     return () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('contextmenu', onCtx);
       cancelAnimationFrame(c.raf);
       ro.disconnect();
       controls.dispose();
@@ -307,6 +431,35 @@ export function Viewer({ parts, view, bedSize, modelVersion }: Props) {
       frame(c, 'iso');
     }
   }, [parts, view, modelVersion]);
+
+  // Frei bauen: negative Teile als rote Geister, Auswahl als grüner Rahmen
+  useEffect(() => {
+    const c = ctx.current;
+    if (!c) return;
+    disposeGroup(c.overlay);
+    if (!overlay) return;
+    for (const p of overlay.parts) {
+      const selected = overlay.sel.includes(p.id);
+      if (!p.hole && !selected) continue;
+      const { center, rot, half } = obb(p, overlay.offset);
+      const geo = new THREE.BoxGeometry(half.x * 2 + 0.6, half.y * 2 + 0.6, half.z * 2 + 0.6);
+      const m4 = new THREE.Matrix4().setFromMatrix3(rot);
+      m4.setPosition(center);
+      if (p.hole) {
+        const ghost = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xff5c5c, transparent: true, opacity: selected ? 0.28 : 0.14, depthWrite: false }));
+        ghost.applyMatrix4(m4);
+        ghost.renderOrder = 5;
+        c.overlay.add(ghost);
+      }
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geo),
+        new THREE.LineBasicMaterial({ color: selected ? (p.hole ? 0xff8787 : 0x3ddc84) : 0xff5c5c, depthTest: false, transparent: true, opacity: selected ? 1 : 0.6 }),
+      );
+      edges.applyMatrix4(m4);
+      edges.renderOrder = 6;
+      c.overlay.add(edges);
+    }
+  }, [overlay]);
 
   const frame = (c: Ctx3, kind: 'iso' | 'top' | 'front' | 'side') => {
     const box = c.bbox ?? new THREE.Box3(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 50));

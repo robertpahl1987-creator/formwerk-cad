@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { freeToModel, KINDS, localExtent, newPart, PRESETS, worldBox, type FreePart, type Preset } from '../cad/free';
 import { outlineKey, outlineText } from '../cad/textOutline';
 import { saveFile } from '../platform/download';
+import { freeBus, type FreeCommand } from '../state/freeBus';
 import { useStore } from '../state/store';
 import { Button, cx, SliderRow, Toggle } from './ui';
 
@@ -44,7 +45,17 @@ export function FreeMode() {
     const d = load();
     return { ...d, parts: d.parts.map(withOutline) };
   });
-  const [sel, setSel] = useState<number | null>(null);
+  const [sels, setSels] = useState<number[]>([]);
+  const sel = sels.length ? sels[sels.length - 1] : null;
+  /** Auswahl setzen – zusammengefügte Teile werden immer gemeinsam ausgewählt. */
+  const setSel = (id: number | null, additive = false) => {
+    if (id === null) return setSels([]);
+    const p = data.parts.find((x) => x.id === id);
+    const ids = p?.group ? data.parts.filter((x) => x.group === p.group).map((x) => x.id) : [id];
+    if (additive) {
+      setSels((cur) => (cur.includes(id) ? cur.filter((x) => !ids.includes(x)) : [...cur.filter((x) => !ids.includes(x)), ...ids.filter((x) => x !== id), id]));
+    } else setSels([...ids.filter((x) => x !== id), id]);
+  };
   const undoStack = useRef<Saved[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -82,7 +93,20 @@ export function FreeMode() {
     const k = `${id}:${key}`;
     if (lastKey.current !== k) undoStack.current = [...undoStack.current.slice(-39), data];
     lastKey.current = k;
-    setData((d) => ({ ...d, parts: d.parts.map((p) => (p.id === id ? withOutline(fn(structuredClone(p))) : p)) }));
+    setData((d) => {
+      const before = d.parts.find((p) => p.id === id);
+      if (!before) return d;
+      const after = withOutline(fn(structuredClone(before)));
+      // Gruppe: Verschieben wirkt auf alle zusammengefügten Teile
+      const delta = after.pos.map((v, i) => v - before.pos[i]);
+      const moveGroup = before.group && key.startsWith('pos') && delta.some((v) => Math.abs(v) > 1e-9);
+      return {
+        ...d,
+        parts: d.parts.map((p) =>
+          p.id === id ? after : moveGroup && p.group === before.group ? { ...p, pos: p.pos.map((v, i) => round(v + delta[i])) as FreePart['pos'] } : p,
+        ),
+      };
+    });
   };
   const undo = () => {
     const prev = undoStack.current.pop();
@@ -194,6 +218,119 @@ export function FreeMode() {
 
   const palette = state.settings.palette;
 
+  // ---- Verbindung zur 3D-Ansicht (Anklicken & Rechtsklick-Menü) ----
+  useEffect(() => {
+    freeBus.publish({ parts: active ? parts : [], sel: active ? sels : [] });
+  }, [parts, sels, active]);
+  const nextGroup = () => Math.max(0, ...parts.map((p) => p.group ?? 0)) + 1;
+  const runCommand = (c: FreeCommand) => {
+    if (c.type === 'select') {
+      if (!c.ids.length) return setSel(null);
+      return setSel(c.ids[0], c.additive);
+    }
+    const targets = parts.filter((p) => c.ids.includes(p.id));
+    const one = targets[targets.length - 1];
+    const ids = new Set(c.ids);
+    switch (c.action) {
+      case 'hole':
+      case 'body':
+        commit({ ...data, parts: parts.map((p) => (ids.has(p.id) ? { ...p, hole: c.action === 'hole' } : p)) });
+        dispatch({ type: 'toast', kind: 'ok', text: c.action === 'hole' ? 'Als negatives Teil (Loch) gesetzt' : 'Als Körper gesetzt' });
+        return;
+      case 'matchHole':
+        if (one) duplicate(one, true);
+        return;
+      case 'duplicate': {
+        if (!targets.length) return;
+        const g = targets.some((t) => t.group) ? nextGroup() : undefined;
+        let n = data.next;
+        const copies = targets.map((t) => ({ ...structuredClone(t), id: n++, name: `${t.name} Kopie`, group: t.group ? g : undefined, pos: [t.pos[0] + 10, t.pos[1] + 10, t.pos[2]] as FreePart['pos'] }));
+        commit({ parts: [...parts, ...copies], next: n });
+        setSels(copies.map((x) => x.id));
+        return;
+      }
+      case 'delete':
+        commit({ ...data, parts: parts.filter((p) => !ids.has(p.id)) });
+        setSels([]);
+        dispatch({ type: 'toast', kind: 'info', text: `${targets.length} Teil${targets.length === 1 ? '' : 'e'} gelöscht – ↶ Rückgängig holt es zurück` });
+        return;
+      case 'drop': {
+        // gemeinsam so absenken, dass das tiefste Teil auf dem Bett liegt
+        const minZ = Math.min(...targets.map((t) => worldBox(t).min[2]));
+        commit({ ...data, parts: parts.map((p) => (ids.has(p.id) ? { ...p, pos: [p.pos[0], p.pos[1], round(p.pos[2] - minZ)] as FreePart['pos'] } : p)) });
+        return;
+      }
+      case 'onTop':
+        if (one) placeOnTop(one);
+        return;
+      case 'rotX':
+      case 'rotY':
+      case 'rotZ': {
+        const ax = c.action === 'rotX' ? 0 : c.action === 'rotY' ? 1 : 2;
+        commit({
+          ...data,
+          parts: parts.map((p) => {
+            if (!ids.has(p.id)) return p;
+            const r = [...p.rot] as FreePart['rot'];
+            r[ax] = ((((r[ax] + 90 + 180) % 360) + 360) % 360) - 180;
+            return { ...p, rot: r };
+          }),
+        });
+        return;
+      }
+      case 'group': {
+        if (targets.length < 2) return dispatch({ type: 'toast', kind: 'info', text: 'Zum Zusammenfügen mindestens zwei Teile auswählen (Strg/Umschalt + Klick oder „Zur Auswahl hinzufügen“)' });
+        const g = nextGroup();
+        commit({ ...data, parts: parts.map((p) => (ids.has(p.id) ? { ...p, group: g } : p)) });
+        dispatch({ type: 'toast', kind: 'ok', text: `${targets.length} Teile zusammengefügt – sie bewegen sich jetzt gemeinsam` });
+        return;
+      }
+      case 'ungroup': {
+        const gs = new Set(targets.map((t) => t.group).filter(Boolean));
+        commit({ ...data, parts: parts.map((p) => (p.group && gs.has(p.group) ? { ...p, group: undefined } : p)) });
+        if (one) setSels([one.id]);
+        dispatch({ type: 'toast', kind: 'ok', text: 'Teile getrennt' });
+        return;
+      }
+      case 'color':
+        commit({ ...data, parts: parts.map((p) => (ids.has(p.id) ? { ...p, slot: Number(c.arg) || 1 } : p)) });
+        return;
+      case 'add':
+      case 'addHole': {
+        const pr = PRESETS.find((x) => x.label === c.arg) ?? PRESETS[0];
+        const p = withOutline(newPart({ ...pr, hole: c.action === 'addHole' ? true : pr.hole }, data.next));
+        const ext = localExtent(p);
+        if (c.at) {
+          p.pos[0] = round(c.at[0]);
+          p.pos[1] = round(c.at[1]);
+        }
+        p.pos[2] = round(ext[2] / 2);
+        if (c.action === 'addHole' && one) {
+          // negatives Teil mitten in das angeklickte Teil
+          const b = worldBox(one);
+          p.pos = [round((b.min[0] + b.max[0]) / 2), round((b.min[1] + b.max[1]) / 2), round((b.min[2] + b.max[2]) / 2)];
+          p.name = `Negativ ${data.next}`;
+        }
+        commit({ parts: [...parts, p], next: data.next + 1 });
+        setSels([p.id]);
+        lastKey.current = '';
+        return;
+      }
+      case 'selectAll':
+        setSels(parts.map((p) => p.id));
+        return;
+      case 'undo':
+        undo();
+        return;
+    }
+  };
+  const cmdRef = useRef(runCommand);
+  cmdRef.current = runCommand;
+  useEffect(() => {
+    freeBus.setHandler((c) => cmdRef.current(c));
+    return () => freeBus.setHandler(null);
+  }, []);
+
   return (
     <div className="space-y-4">
       <div>
@@ -222,17 +359,25 @@ export function FreeMode() {
           {parts.map((p) => (
             <button
               key={p.id}
-              onClick={() => {
-                setSel(p.id === sel ? null : p.id);
+              onClick={(e) => {
+                const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+                if (!additive && sels.length === 1 && p.id === sel) setSel(null);
+                else setSel(p.id, additive);
                 lastKey.current = '';
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (!sels.includes(p.id)) setSel(p.id);
+                freeBus.openMenu({ x: e.clientX, y: e.clientY, id: p.id, at: null });
               }}
               className={cx(
                 'h-8 px-3 rounded-full border text-[12.5px] transition-colors',
                 p.hole ? 'border-dashed border-red-500/60' : 'border-[#30363d]',
-                p.id === sel ? (p.hole ? 'bg-red-600 text-white border-red-600' : 'bg-[#00ae42] text-white border-[#00ae42]') : 'bg-[#0d1117] text-slate-300',
+                sels.includes(p.id) ? (p.hole ? 'bg-red-600 text-white border-red-600' : 'bg-[#00ae42] text-white border-[#00ae42]') : 'bg-[#0d1117] text-slate-300',
               )}
             >
               {p.hole ? '⊖ ' : ''}
+              {p.group ? '🔗 ' : ''}
               {p.name}
             </button>
           ))}
@@ -283,6 +428,10 @@ export function FreeMode() {
             <b>Körper</b> sind fest. <b>Löcher</b> werden aus allen Körpern herausgeschnitten. Jede Form kann beides sein.
           </li>
           <li>Teile, die sich berühren oder überlappen, verschmelzen zu einem Stück.</li>
+          <li>
+            <b>Rechtsklick</b> (am Handy: lange drücken) auf ein Teil in der 3D-Ansicht oder hier in der Liste öffnet das Menü: negatives Teil, zusammenfügen/trennen, drehen,
+            kopieren, Farbe, löschen. <b>Strg/Umschalt + Klick</b> wählt mehrere Teile.
+          </li>
           <li>
             <b>Passendes Loch</b> macht aus einem Zapfen ein Loch mit Spiel (Drucktoleranz aus den Einstellungen) – ideal für Steckverbindungen.
           </li>

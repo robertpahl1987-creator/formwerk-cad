@@ -2,7 +2,9 @@ import { Component, useEffect, useMemo, useRef, useState, type PointerEvent as R
 import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
 import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, ParamPanel, PrintCheck, SplitPanel } from './components/ModelPanels';
+import { ContextMenu } from './components/ContextMenu';
 import { EditPanel } from './components/EditPanel';
+import { freeBus, useFreeSnapshot } from './state/freeBus';
 import { FreeMode } from './components/FreeMode';
 import { PhotoMode } from './components/PhotoMode';
 import { abortRef, TextMode } from './components/TextMode';
@@ -339,6 +341,12 @@ export function App() {
     if (b.pieces) return explodedParts(b.pieces);
     return b.parts;
   }, [b, state.view.plate]);
+  // Frei bauen: Teile in der 3D-Ansicht anklickbar machen
+  const freeSnap = useFreeSnapshot();
+  const overlay = useMemo(() => {
+    if (state.mode !== 'free' || state.model?.templateId !== 'frei' || !b || b.pieces || state.orientation.rx || state.orientation.ry) return null;
+    return { parts: freeSnap.parts, sel: freeSnap.sel, offset: b.placement.t };
+  }, [state.mode, state.model, b, freeSnap, state.orientation]);
   const viewKey = state.modelVersion * 100 + state.view.plate + 1 + (b?.pieces ? 50 : 0);
 
   return (
@@ -352,7 +360,18 @@ export function App() {
         )}
         <main className="flex-1 min-w-0 relative">
           <ViewerBoundary>
-            <Viewer parts={display} view={state.view} bedSize={s.bedSize} modelVersion={viewKey} />
+            <Viewer
+              parts={display}
+              view={state.view}
+              bedSize={s.bedSize}
+              modelVersion={viewKey}
+              overlay={overlay}
+              onPick={(id, additive) => freeBus.send({ type: 'select', ids: id === null ? [] : [id], additive })}
+              onMenu={(id, x, y, at) => {
+                if (id !== null && !freeBus.get().sel.includes(id)) freeBus.send({ type: 'select', ids: [id] });
+                freeBus.openMenu({ x, y, id, at });
+              }}
+            />
           </ViewerBoundary>
           <ViewToggles />
         </main>
@@ -366,6 +385,7 @@ export function App() {
       <CodeDialog />
       <Busy />
       <UpdateBanner />
+      <ContextMenu />
       <Toast />
     </div>
   );
