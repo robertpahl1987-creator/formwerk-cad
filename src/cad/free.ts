@@ -125,6 +125,10 @@ export const PRESETS: Preset[] = [
 ];
 
 // ------------------------------------------------------------ Hilfen
+/** Löcher minimal größer bauen: deckungsgleiche Flächen (Loch endet genau an der
+ *  Unterseite) würden sonst offene Kanten im Netz erzeugen. 0,02 mm sind im Druck unsichtbar. */
+const HOLE_EPS = 0.02;
+
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const num = (v: FreeValue | undefined, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const tr = (v: V3, children: CadNode[]): CadNode => ({ type: 'translate', v: [r3(v[0]), r3(v[1]), r3(v[2])], children });
@@ -199,7 +203,7 @@ export function partShape(p: FreePart): CadNode {
       const d = num(e.d, 4) + 0.3,
         L = num(e.L, 10),
         k = num(e.k, 0) > num(e.d, 4) ? num(e.k, 0) + 0.3 : 0;
-      const kids: CadNode[] = [cylZ(d / 2, -L / 2, L / 2 + (k ? 0 : 0.01))];
+      const kids: CadNode[] = [cylZ(d / 2, -L / 2 - HOLE_EPS, L / 2 + (k ? 0 : HOLE_EPS))];
       if (k) {
         const s = Math.min((k - d) / 2, L);
         kids.push(tr([0, 0, L / 2 - s], [{ type: 'cylinder', r1: r3(d / 2), r2: r3(k / 2), h: r3(s) }]));
@@ -314,7 +318,8 @@ export function worldBox(p: FreePart): { min: V3; max: V3 } {
 }
 
 function placed(p: FreePart): CadNode {
-  const shape = partShape(p);
+  const q = p.hole && KINDS[p.kind].size ? { ...p, size: p.size.map((v) => v + 2 * HOLE_EPS) as V3 } : p;
+  const shape = partShape(q);
   const rotated: CadNode = p.rot.some((v) => Math.abs(v) > 1e-9) ? { type: 'rotate', a: [r3(p.rot[0]), r3(p.rot[1]), r3(p.rot[2])], children: [shape] } : shape;
   return tr(p.pos, [rotated]);
 }
