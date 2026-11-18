@@ -17,6 +17,7 @@ import { runPipeline } from '../src/state/pipeline';
 import { DEFAULT_HOLLOW } from '../src/cad/build';
 import { PROFILES } from '../src/mesh/mesh';
 import { optimizePrint } from '../src/mesh/optimize';
+import { supportColumns } from '../src/mesh/supports';
 import { packPlates } from '../src/state/plateJob';
 import { lithoSoup, DEFAULT_LITHO } from '../src/photo/litho';
 import { weldTriangles } from '../src/mesh/importMesh';
@@ -361,6 +362,22 @@ for (const arc of [0, 180]) {
   const ok = n === 19 && !overlap && !outside;
   if (!ok) fails++;
   console.log(`${ok ? '✓' : '✗'} Sammelplatte: ${n} Objekte auf ${res.plates.length} Platte(n), Überlappungen ${overlap}, außerhalb ${outside}`);
+}
+
+// ---------------------------------------------------------------- Stützen-Vorschau
+{
+  checks++;
+  // Tisch: Säule 10×10×30, darauf Platte 60×60×4 → Überhang rundum, Stützen bis zum Bett
+  const tisch: ModelDef = { name: 'Tisch', params: [], source: 'custom', root: [{ type: 'translate', v: [-5, -5, 0], children: [{ type: 'cube', size: [10, 10, 30.01] }] }, { type: 'translate', v: [-30, -30, 30], children: [{ type: 'cube', size: [60, 60, 4] }] }] };
+  const polys = buildParts(tisch, {}, { tol: 0.2, fase: true }, { rx: 0, ry: 0 }).parts.flatMap((p) => p.polys);
+  const m = meshFromPolygons(polys);
+  const st = analyzeMesh(m, 45, 0);
+  const cols = supportColumns([{ mesh: m, flags: st.overhangFlags }]);
+  const allToBed = cols.every((c) => c.z0 < 0.01 && Math.abs(c.z1 - 29.8) < 0.05);
+  const under = cols.filter((c) => Math.abs(c.x) < 5 && Math.abs(c.y) < 5).length;
+  const ok = cols.length > 400 && allToBed && under === 0;
+  if (!ok) fails++;
+  console.log(`${ok ? '✓' : '✗'} Stützen-Vorschau Tisch: ${cols.length} Säulen, alle bis zum Bett ${allToBed}, unter der Säule ${under}`);
 }
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);

@@ -64,6 +64,9 @@ export interface ViewOpts {
   sectionPos: number; // 0..1
   dims: boolean;
   overhangs: boolean;
+  /** Druckvorschau: Schichtlinien, Filament-Look, Stützen, Schicht-Regler */
+  print?: boolean;
+  supports?: boolean;
 }
 
 export interface State {

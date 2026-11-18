@@ -6,6 +6,7 @@ import { ContextMenu } from './components/ContextMenu';
 import { AssemblyPanel, PlateBar } from './components/AssemblyPanel';
 import { PlateJobPanel, usePacked } from './components/PlateJobPanel';
 import { plateJob, usePlateJob } from './state/plateJob';
+import { printPreview, usePrintLayer } from './state/printPreview';
 import { asmSettings, assembledParts } from './state/assemblyBuild';
 import { EditPanel } from './components/EditPanel';
 import { freeBus, useFreeSnapshot } from './state/freeBus';
@@ -320,6 +321,59 @@ function PanelContent() {
   );
 }
 
+/** Druckvorschau: Schicht-Regler mit Abspielen (zeigt, wie das Teil Schicht für Schicht entsteht). */
+function PrintBar() {
+  const { state, dispatch } = useStore();
+  const f = usePrintLayer();
+  const [playing, setPlaying] = useState(false);
+  const b = state.build;
+  const layer = state.settings.layer;
+  const h = b ? b.total.max[2] - b.total.min[2] : 0;
+  const n = Math.max(1, Math.round(h / layer));
+  const cur = Math.max(1, Math.round(f * n));
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    let last = performance.now();
+    if (printPreview.get() >= 1) printPreview.set(0);
+    const dur = Math.min(14000, Math.max(5000, n * 25));
+    const step = (t: number) => {
+      const v = printPreview.get() + (t - last) / dur;
+      last = t;
+      if (v >= 1) {
+        printPreview.set(1);
+        setPlaying(false);
+        return;
+      }
+      printPreview.set(v);
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, n]);
+  if (!b) return null;
+  const minutes = b.estimate.minutes * f;
+  return (
+    <div className="absolute left-3 right-3 bottom-24 lg:bottom-4 z-10 mx-auto max-w-xl rounded-xl bg-[#161b22]/95 border border-[#30363d] p-2.5 backdrop-blur space-y-1.5">
+      <div className="flex items-center gap-2">
+        <button onClick={() => setPlaying(!playing)} className="h-9 w-9 shrink-0 rounded-lg bg-[#00ae42] text-white text-[15px]" title={playing ? 'Anhalten' : 'Druck abspielen'}>
+          {playing ? '❚❚' : '▶'}
+        </button>
+        <input type="range" min={0} max={1} step={1 / n} value={f} onChange={(e) => (setPlaying(false), printPreview.set(Number(e.target.value)))} className="fw-range flex-1" />
+      </div>
+      <div className="flex items-center justify-between text-[11.5px] text-slate-400 tabular-nums">
+        <span>
+          Schicht {cur} / {n} · {(f * h).toFixed(1).replace('.', ',')} mm · ca. {Math.floor(minutes / 60)} h {String(Math.round(minutes % 60)).padStart(2, '0')} min
+        </span>
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked={state.view.supports !== false} onChange={(e) => dispatch({ type: 'view', patch: { supports: e.target.checked } })} />
+          Stützen
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function ViewToggles() {
   const { state, dispatch } = useStore();
   const job = usePlateJob();
@@ -339,6 +393,16 @@ function ViewToggles() {
         {t('xray', '🩻 X-Ray')}
         {t('section', '✂ Schnitt')}
         {t('overhangs', '⚠ Überhänge')}
+        <button
+          onClick={() => {
+            const on = !v.print;
+            dispatch({ type: 'view', patch: { print: on, xray: on ? false : v.xray } });
+            if (on) printPreview.set(1);
+          }}
+          className={cx('h-8 px-2.5 rounded-lg border text-[12px] backdrop-blur', v.print ? 'bg-[#00ae42]/20 border-[#00ae42] text-white' : 'bg-[#161b22]/90 border-[#30363d] text-slate-400')}
+        >
+          🖨️ Druckvorschau
+        </button>
         {job.show && job.items.length > 0 && (
           <button onClick={() => plateJob.show(false)} className="h-8 px-2.5 rounded-lg border text-[12px] backdrop-blur bg-[#00ae42]/20 border-[#00ae42] text-white">
             🧲 Sammelplatte ✕
@@ -609,6 +673,8 @@ export function App() {
             <Viewer
               parts={display}
               view={state.view}
+              layer={s.layer}
+              infill={s.profile.infill}
               bedSize={s.bedSize}
               modelVersion={viewKey}
               overlay={overlay}
@@ -621,6 +687,7 @@ export function App() {
             />
           </ViewerBoundary>
           <ViewToggles />
+          {state.view.print && <PrintBar />}
         </main>
       </div>
       {!desktop && (

@@ -4,6 +4,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { localExtent, type FreePart } from '../cad/free';
 import type { PartResult } from '../state/pipeline';
 import { getImported } from '../mesh/importMesh';
+import { supportColumns } from '../mesh/supports';
+import { printPreview } from '../state/printPreview';
 import type { ViewOpts } from '../state/store';
 
 /** Frei-bauen-Teile zum Anklicken (Hüllboxen) und Anzeigen negativer Teile. */
@@ -24,6 +26,9 @@ interface Props {
   view: ViewOpts;
   bedSize: number;
   modelVersion: number;
+  /** Schichthöhe und Füllgrad für die Druckvorschau */
+  layer?: number;
+  infill?: number;
 }
 
 interface Ctx3 {
@@ -41,6 +46,8 @@ interface Ctx3 {
   gizmo: THREE.Group;
   pivot: THREE.Vector3 | null;
   plane: THREE.Plane;
+  /** Druckvorschau: alles oberhalb der aktuellen Schicht ausblenden */
+  layerPlane: THREE.Plane;
   raf: number;
   bbox: THREE.Box3 | null;
 }
@@ -163,9 +170,51 @@ function obb(p: FreePart, offset: [number, number, number]) {
   };
 }
 
+/**
+ * Material für die Druckvorschau: Schichtlinien an den Wänden, diagonale Bahnen auf Deckflächen,
+ * matter Kunststoff. back = Innenseite (sichtbar am Schnitt) mit Füllmuster.
+ */
+function printMaterial(o: { layer: number; infill: number; clip: THREE.Plane[]; color?: THREE.Color; vertexColors?: boolean; opacity?: number; back?: boolean }): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({
+    vertexColors: !!o.vertexColors,
+    color: o.color ?? 0xffffff,
+    roughness: 0.66,
+    metalness: 0,
+    clippingPlanes: o.clip,
+    side: o.back ? THREE.BackSide : THREE.FrontSide,
+    transparent: (o.opacity ?? 1) < 1,
+    opacity: o.opacity ?? 1,
+    depthWrite: (o.opacity ?? 1) >= 1,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
+  const spacing = Math.max(1.2, (2 * 0.42) / Math.max(0.03, o.infill));
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uLayer = { value: Math.max(0.04, o.layer) };
+    sh.uniforms.uSpacing = { value: spacing };
+    sh.vertexShader = 'varying vec3 vWp;\nvarying vec3 vWn;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n#ifdef USE_INSTANCING\n  vWp = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\n  vWp = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif\n  vWn = normalize(mat3(modelMatrix) * objectNormal);');
+    const front = `
+      float sideF = 1.0 - smoothstep(0.75, 0.95, abs(vWn.z));
+      float lf = fract(vWp.z / uLayer);
+      float ridge = smoothstep(0.0, 0.35, lf) * smoothstep(1.0, 0.65, lf);
+      diffuseColor.rgb *= mix(1.0, 0.78 + 0.22 * ridge, sideF);
+      float topF = smoothstep(0.85, 0.97, vWn.z);
+      float dd = fract((vWp.x + vWp.y) * 0.7071 / 0.42);
+      diffuseColor.rgb *= mix(1.0, 0.92 + 0.08 * smoothstep(0.0, 0.5, dd) * smoothstep(1.0, 0.5, dd), topF);`;
+    const back = `
+      vec2 g = abs(fract(vWp.xy / uSpacing) - 0.5);
+      float gl = 1.0 - smoothstep(0.42 / uSpacing * 0.5, 0.42 / uSpacing, min(g.x, g.y));
+      diffuseColor.rgb *= 0.45 + 0.45 * gl;`;
+    sh.fragmentShader = 'uniform float uLayer;\nuniform float uSpacing;\nvarying vec3 vWp;\nvarying vec3 vWn;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + (o.back ? back : front));
+  };
+  m.customProgramCacheKey = () => (o.back ? 'fw-print-back' : 'fw-print-front');
+  return m;
+}
+
 const fmt = (n: number) => `${(Math.round(n * 10) / 10).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mm`;
 
-export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu, onTransform }: Props) {
+export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu, onTransform, layer = 0.2, infill = 0.15 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const hud = useRef<HTMLDivElement>(null);
   const ctx = useRef<Ctx3 | null>(null);
@@ -209,7 +258,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     selG.matrixAutoUpdate = false;
     const gizmo = new THREE.Group();
     scene.add(bed, model, dims, overlayG, selG, gizmo);
-    const c: Ctx3 = { renderer, scene, camera, controls, bed, model, dims, overlay: overlayG, selG, gizmo, pivot: null, plane: new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), raf: 0, bbox: null };
+    const c: Ctx3 = { renderer, scene, camera, controls, bed, model, dims, overlay: overlayG, selG, gizmo, pivot: null, plane: new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), layerPlane: new THREE.Plane(new THREE.Vector3(0, 0, -1), 1e6), raf: 0, bbox: null };
 
     // ---- Anklicken & Rechtsklick (nur wenn Frei-bauen-Teile vorhanden) ----
     const ray = new THREE.Raycaster();
@@ -484,6 +533,9 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     const pos = min[axisIdx] + (max[axisIdx] - min[axisIdx]) * view.sectionPos;
     c.plane.set(normal, pos);
     const clip = view.section ? [c.plane] : [];
+    const print = !!view.print && !view.xray;
+    const pclip = print ? [...clip, c.layerPlane] : clip;
+    c.layerPlane.constant = print ? min[2] + (max[2] - min[2]) * printPreview.get() + 1e-3 : 1e6;
 
     const over = new THREE.Color(0xff4d4f);
     for (const part of parts) {
@@ -497,7 +549,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
         arr[i * 3] = P[v];
         arr[i * 3 + 1] = P[v + 1];
         arr[i * 3 + 2] = P[v + 2];
-        const isOver = view.overhangs && part.stats.overhangFlags[(i / 3) | 0] === 1;
+        const isOver = !print && view.overhangs && part.stats.overhangFlags[(i / 3) | 0] === 1;
         const cc = isOver ? over : base;
         col[i * 3] = cc.r;
         col[i * 3 + 1] = cc.g;
@@ -507,6 +559,11 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
       geo.computeVertexNormals();
+      if (print) {
+        c.model.add(new THREE.Mesh(geo, printMaterial({ layer, infill, clip: pclip, vertexColors: true })));
+        c.model.add(new THREE.Mesh(geo, printMaterial({ layer, infill, clip: pclip, color: base.clone().multiplyScalar(0.9), back: true })));
+        continue;
+      }
       const mat = new THREE.MeshStandardMaterial({
         vertexColors: true,
         roughness: 0.55,
@@ -532,6 +589,23 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
           new THREE.LineBasicMaterial({ color: new THREE.Color(part.color).lerp(new THREE.Color(0x74c0fc), 0.6), clippingPlanes: clip }),
         );
         c.model.add(edges);
+      }
+    }
+
+    // Druckvorschau: Stützen (vereinfacht) unter Überhängen
+    if (print && view.supports !== false) {
+      const cols = supportColumns(parts.map((p) => ({ mesh: p.mesh, flags: p.stats.overhangFlags })));
+      if (cols.length) {
+        const geo = new THREE.BoxGeometry(1.9, 1.9, 1);
+        const mat = printMaterial({ layer, infill, clip: pclip, color: new THREE.Color(0xd9dde3), opacity: 0.55 });
+        const inst = new THREE.InstancedMesh(geo, mat, cols.length);
+        const m4 = new THREE.Matrix4();
+        cols.forEach((cl, i) => {
+          m4.makeScale(1, 1, cl.z1 - cl.z0).setPosition(cl.x, cl.y, (cl.z0 + cl.z1) / 2);
+          inst.setMatrixAt(i, m4);
+        });
+        inst.renderOrder = 2;
+        c.model.add(inst);
       }
     }
 
@@ -562,7 +636,18 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       lastVersion.current = modelVersion;
       frame(c, 'iso');
     }
-  }, [parts, view, modelVersion]);
+  }, [parts, view, modelVersion, layer, infill]);
+
+  // Druckvorschau: Schicht-Regler bewegt nur die Schnittebene (kein Neuaufbau)
+  useEffect(
+    () =>
+      printPreview.subscribe(() => {
+        const c = ctx.current;
+        if (!c || !c.bbox || !view.print) return;
+        c.layerPlane.constant = c.bbox.min.z + (c.bbox.max.z - c.bbox.min.z) * printPreview.get() + 1e-3;
+      }),
+    [view.print],
+  );
 
   // Frei bauen: negative Teile als rote Geister, Auswahl als grüner Rahmen
   useEffect(() => {
