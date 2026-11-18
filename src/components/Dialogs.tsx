@@ -71,7 +71,13 @@ export function SettingsDialog() {
         </label>
         <label className="block">
           <span className="text-[13px] text-slate-300">Gemini-Modell</span>
-          <input value={ai.geminiModel} onChange={(e) => setAi({ geminiModel: e.target.value })} className={field} />
+          <input value={ai.geminiModel} onChange={(e) => setAi({ geminiModel: e.target.value })} list="fw-gemini-models" className={field} />
+          <datalist id="fw-gemini-models">
+            <option value="gemini-3.8-flash" />
+            <option value="gemini-3.7-flash" />
+            <option value="gemini-3.5-flash-lite" />
+          </datalist>
+          <span className="text-[11px] text-slate-500">Zieht Google ein Modell zurück, wechselt die App automatisch auf den genannten Nachfolger.</span>
         </label>
         <label className="block">
           <span className="text-[13px] text-slate-300">OpenAI API-Key (optional)</span>

@@ -28,7 +28,7 @@ export const DEFAULT_AI: AiSettings = {
   anthropicKey: '', // ← Claude-API-Key (console.anthropic.com) – in der App unter „Einstellungen“
   anthropicModel: 'claude-sonnet-5-5',
   geminiKey: '', // ← Hier oder in der App unter „Einstellungen“ den Gemini-API-Key eintragen
-  geminiModel: 'gemini-2.5-flash',
+  geminiModel: 'gemini-3.8-flash',
   openaiKey: '',
   openaiModel: 'gpt-4.1',
 };
@@ -59,11 +59,12 @@ async function blobToBase64(b: Blob): Promise<string> {
   return btoa(s);
 }
 
-async function callGemini(s: AiSettings, system: string, user: string, image: Blob | undefined, signal?: AbortSignal): Promise<string> {
+async function callGemini(s: AiSettings, system: string, user: string, image: Blob | undefined, signal?: AbortSignal, modelOverride?: string): Promise<string> {
   if (!s.geminiKey.trim()) throw new Error('Kein Gemini-API-Key hinterlegt (Einstellungen).');
+  const model = modelOverride || s.geminiModel || DEFAULT_AI.geminiModel;
   const parts: unknown[] = [{ text: user }];
   if (image) parts.push({ inline_data: { mime_type: image.type || 'image/jpeg', data: await blobToBase64(image) } });
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(s.geminiModel || 'gemini-2.5-flash')}:generateContent`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     signal,
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.geminiKey.trim() },
@@ -74,7 +75,22 @@ async function callGemini(s: AiSettings, system: string, user: string, image: Bl
     }),
   });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Gemini: ${j?.error?.message ?? res.statusText}`);
+  if (!res.ok) {
+    const msg: string = j?.error?.message ?? res.statusText;
+    // Google zieht ältere Modelle zurück und nennt den Nachfolger in der Fehlermeldung → einmal automatisch wechseln
+    const next = msg.match(/use\s+models\/([\w.\-]+)/i)?.[1];
+    if (!modelOverride && next && next !== model) {
+      try {
+        localStorage.setItem('formwerk-cad:gemini-model-hint', next);
+      } catch {
+        /* egal */
+      }
+      return callGemini(s, system, user, image, signal, next);
+    }
+    if (!modelOverride && /permission|not found|no longer available/i.test(msg) && model !== DEFAULT_AI.geminiModel)
+      return callGemini(s, system, user, image, signal, DEFAULT_AI.geminiModel);
+    throw new Error(`Gemini (${model}): ${msg}`);
+  }
   const text = j?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
   if (!text) throw new Error('Gemini hat keine Antwort geliefert.');
   return text;

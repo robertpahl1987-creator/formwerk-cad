@@ -80,6 +80,14 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const s = JSON.parse(raw);
+    // Veraltete Gemini-Modelle automatisch auf das aktuelle umstellen
+    let hint: string | null = null;
+    try {
+      hint = localStorage.getItem('formwerk-cad:gemini-model-hint');
+    } catch {
+      /* egal */
+    }
+    if (s.ai && (!s.ai.geminiModel || /^gemini-(1|2)\./.test(s.ai.geminiModel))) s.ai.geminiModel = hint || DEFAULT_AI.geminiModel;
     return {
       ...DEFAULT_SETTINGS,
       ...s,
