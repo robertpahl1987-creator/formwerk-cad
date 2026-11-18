@@ -3,6 +3,7 @@ import { PROVIDER_LABEL, type ProviderId } from '../ai/providers';
 import { toScad } from '../cad/scad';
 import { validateModel } from '../cad/validate';
 import { insideClaude } from '../platform/claude';
+import { APK_URL, isNativeApp } from '../platform/native';
 import { useStore } from '../state/store';
 import { Button, NumberInput, cx } from './ui';
 
@@ -73,6 +74,20 @@ export function SettingsDialog() {
           lokalen Konturerkennung.
         </p>
       </section>
+      {!isNativeApp() && (
+        <section className="space-y-2 pt-2 border-t border-[#21262d]">
+          <h3 className="text-[11px] uppercase tracking-wider text-slate-500 pt-2">Android-App</h3>
+          <a
+            href={APK_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-2 h-10 rounded-lg bg-[#00ae42] text-white text-sm font-medium"
+          >
+            ⤓ APK herunterladen
+          </a>
+          <p className="text-[11px] text-slate-500">Auf dem Handy öffnen und installieren (einmalig „Installation aus unbekannten Quellen“ erlauben). Link: {APK_URL}</p>
+        </section>
+      )}
       <section className="space-y-3 pt-2 border-t border-[#21262d]">
         <h3 className="text-[11px] uppercase tracking-wider text-slate-500 pt-2">Drucker</h3>
         <div className="grid grid-cols-2 gap-3">

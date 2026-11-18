@@ -5,6 +5,7 @@ import { ColorPanel, ExportPanel, Library, MaterialPanel, ParamPanel, PrintCheck
 import { PhotoMode } from './components/PhotoMode';
 import { abortRef, TextMode } from './components/TextMode';
 import { cx, SliderRow, useMedia } from './components/ui';
+import { checkApkUpdate, isNativeApp, openApkDownload } from './platform/native';
 import { explodedParts, runPipeline } from './state/pipeline';
 import { useStore, type Mode } from './state/store';
 import { Viewer } from './viewer/Viewer';
@@ -215,6 +216,30 @@ function BottomSheet({ children }: { children: ReactNode }) {
   );
 }
 
+/** Web-Inhalte aktualisieren sich automatisch; eine neue APK wird hier angeboten. */
+function UpdateBanner() {
+  const [build, setBuild] = useState<number | null>(null);
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    checkApkUpdate().then(setBuild);
+  }, []);
+  if (!build || hidden) return null;
+  return (
+    <div className="fixed left-3 right-3 top-16 z-[58] rounded-xl border border-[#00ae42] bg-[#0d1117]/95 backdrop-blur p-3 flex items-center gap-3 shadow-xl">
+      <div className="flex-1 text-[13px] text-slate-200">
+        <b>App-Update verfügbar</b> (Build {build}). Android fragt einmal nach Bestätigung, deine Einstellungen bleiben erhalten.
+      </div>
+      <button onClick={() => openApkDownload()} className="h-9 px-3 rounded-lg bg-[#00ae42] text-white text-[13px] font-medium shrink-0">
+        Installieren
+      </button>
+      <button onClick={() => setHidden(true)} className="text-slate-500 px-1">
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function Toast() {
   const { state, dispatch } = useStore();
   if (!state.toast) return null;
@@ -330,6 +355,7 @@ export function App() {
       <SettingsDialog />
       <CodeDialog />
       <Busy />
+      <UpdateBanner />
       <Toast />
     </div>
   );

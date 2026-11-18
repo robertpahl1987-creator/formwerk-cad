@@ -1,5 +1,6 @@
 import { wrapInZip } from '../mesh/export';
 import { capability } from './claude';
+import { isNativeApp, nativeSave } from './native';
 
 /**
  * Speichert eine Datei. Normal (PWA/Browser): direkter Download.
@@ -7,6 +8,16 @@ import { capability } from './claude';
  * nicht erlaubt sind (.stl/.3mf/.scad), werden automatisch in ein ZIP gepackt.
  */
 export async function saveFile(filename: string, data: Blob | Uint8Array | string): Promise<'saved' | 'zipped' | 'declined'> {
+  if (isNativeApp()) {
+    try {
+      await nativeSave(filename, data);
+      return 'saved';
+    } catch (e) {
+      // Teilen abgebrochen
+      if (/cancel/i.test(String((e as Error)?.message ?? e))) return 'declined';
+      throw e;
+    }
+  }
   const dl = await capability('downloads');
   if (dl) {
     try {

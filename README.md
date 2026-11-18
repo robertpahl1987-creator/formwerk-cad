@@ -62,6 +62,16 @@ Ohne Key funktionieren die Vorlagen und die lokale Foto-Konturerkennung trotzdem
 2. Im Repository unter **Settings → Pages → Source** „GitHub Actions“ auswählen.
 3. Der Workflow `.github/workflows/deploy.yml` baut und veröffentlicht die App bei jedem Push.
 
+### Android-App (APK) & automatische Updates
+Der Workflow `.github/workflows/android.yml` baut mit Capacitor eine echte Android-App und stellt sie bereit unter:
+<https://github.com/robertpahl1987-creator/formwerk-cad/releases/download/app/formwerk-cad.apk>
+
+- **Automatische Updates:** Die App lädt beim Start immer die aktuelle Version von GitHub Pages. Jede Änderung am Code ist
+  nach dem Push sofort in der App, ohne Neuinstallation. Offline läuft die zuletzt geladene Version weiter (Service Worker).
+- **Neue APK nur bei nativen Änderungen** (Capacitor-Plugins, Symbol, Signatur). Die App erkennt das selbst und bietet
+  „Installieren“ an. Android fragt dann einmal nach Bestätigung, weil Apps außerhalb des Play Stores nicht ungefragt installiert werden dürfen.
+- Speichern/Export in der App läuft über das Android-Teilen-Menü (z. B. direkt an Bambu Handy, Drive oder Downloads).
+
 ### Installieren
 - **Android/Chrome:** Menü → „App installieren“, oder den Button **Installieren** in der App
 - **iPhone/iPad (Safari):** Teilen → „Zum Home-Bildschirm“
