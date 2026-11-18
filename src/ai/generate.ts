@@ -3,7 +3,7 @@
  * komplett offline (Vorlagen + Maßerkennung). Funktioniert in der installierten
  * App und auf GitHub Pages ohne Claude.
  */
-import { applyMeasures, matchTemplate, parseMeasuresFromText, type Measures } from '../cad/templates';
+import { applyMeasures, matchTemplate, MEASURE_LABEL, parseMeasuresFromText, type Measures } from '../cad/templates';
 import type { ModelDef, Value } from '../cad/types';
 import { defaultValues, extractJson, validateModel } from '../cad/validate';
 import { callProvider, generateWithAi, resolveProvider, type AiSettings } from './providers';
@@ -26,13 +26,26 @@ export function offlineGenerate(text: string, measures: Measures): GenResult {
   return { model, values, via: `Vorlage „${tpl.name}“` };
 }
 
+/** Zahlen (in mm bzw. Stück), die der Nutzer genannt hat und die im Modell wiederzufinden sein müssen. */
+function requiredNumbers(ms: Measures): { label: string; v: number }[] {
+  return (Object.entries(ms) as [keyof Measures, number | undefined][])
+    .filter(([k, v]) => v !== undefined && k !== 'count')
+    .map(([k, v]) => ({ label: MEASURE_LABEL[k], v: v! }));
+}
+/** Welche geforderten Werte kommen in keinem Parameter vor? */
+function missingIn(model: ModelDef, values: Record<string, Value>, req: { label: string; v: number }[]): { label: string; v: number }[] {
+  const have = model.params.map((p) => values[p.key] ?? p.value).filter((x): x is number => typeof x === 'number');
+  return req.filter((r) => !have.some((h) => Math.abs(h - r.v) < 0.011));
+}
+
 export async function generateFromText(
   text: string,
   manual: Measures,
   opts: { tol: number; multicolor: boolean; ai: AiSettings; signal?: AbortSignal; onStatus?: (s: string) => void },
 ): Promise<GenResult> {
   const measures: Measures = { ...parseMeasuresFromText(text) };
-  for (const [k, v] of Object.entries(manual)) if (v !== undefined) (measures as Record<string, number>)[k] = v;
+  const manualOnly: Measures = {};
+  for (const [k, v] of Object.entries(manual)) if (v !== undefined) (measures as Record<string, number>)[k] = (manualOnly as Record<string, number>)[k] = v;
   const p = await resolveProvider(opts.ai);
   if (p === 'offline') return offlineGenerate(text, measures);
   try {
@@ -42,11 +55,45 @@ export async function generateFromText(
       { signal: opts.signal, onStatus: opts.onStatus },
     );
     model.prompt = text;
-    return { model, values: applyMeasures(model, defaultValues(model), measures), via: provider };
+    // Nur ausdrücklich ins Maß-Feld eingetragene Werte erzwingen – Textmaße hat die KI selbst zugeordnet
+    let result = model;
+    let values = applyMeasures(result, defaultValues(result), manualOnly);
+    // Prüfen, ob alle genannten Maße im Modell stecken – sonst einmal nachbessern lassen
+    const miss = missingIn(result, values, requiredNumbers(measures));
+    if (miss.length) {
+      try {
+        opts.onStatus?.(`Übernehme fehlende Maße (${miss.map((m) => `${m.label} ${m.v}`).join(', ')}) …`);
+        const fix = await callProvider(
+          p,
+          opts.ai,
+          systemPrompt(),
+          `Im folgenden Modell fehlen Angaben des Nutzers. Aufgabe war: „${text}“.\nFEHLENDE MASSE (exakt übernehmen und als Parameter mit genau diesem Wert anlegen bzw. den passenden Parameter auf diesen Wert setzen):\n${miss.map((m) => `- ${m.label}: ${m.v}`).join('\n')}\nAntworte nur mit dem vollständigen, korrigierten JSON.\n\n${JSON.stringify({ name: result.name, description: result.description, params: result.params, root: result.root })}`,
+          undefined,
+          opts.signal,
+        );
+        const v = validateModel(extractJson(fix), 'ai');
+        if (v.ok) {
+          const vals = applyMeasures(v.model!, defaultValues(v.model!), manualOnly);
+          if (missingIn(v.model!, vals, requiredNumbers(measures)).length < miss.length) {
+            result = { ...v.model!, prompt: text };
+            values = vals;
+          }
+        }
+      } catch (e) {
+        if (opts.signal?.aborted) throw e;
+      }
+    }
+    const still = missingIn(result, values, requiredNumbers(measures));
+    return {
+      model: result,
+      values,
+      via: provider,
+      note: still.length ? `Hinweis: ${still.map((m) => `${m.label} ${String(m.v).replace('.', ',')} mm`).join(', ')} nicht direkt als Parameter gefunden – bitte in Schritt 2 prüfen.` : undefined,
+    };
   } catch (e) {
     if (opts.signal?.aborted) throw e;
     const r = offlineGenerate(text, measures);
-    r.note = `KI-Fehler: ${(e as Error).message.split('\n')[0]} – passende Vorlage verwendet.`;
+    r.note = `KI-Fehler: ${(e as Error).message.split('\n')[0]} – passende Vorlage verwendet (Maße übernommen).`;
     return r;
   }
 }

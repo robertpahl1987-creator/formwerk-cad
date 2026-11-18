@@ -446,7 +446,28 @@ export interface Measures {
   wall?: number;
   hole?: number;
   count?: number;
+  /** Fächer-Raster (Setzkasten, Organizer) */
+  cols?: number;
+  rows?: number;
+  /** Innenmaß eines Fachs */
+  cellL?: number;
+  cellW?: number;
+  cellH?: number;
 }
+
+export const MEASURE_LABEL: Record<keyof Measures, string> = {
+  length: 'Länge',
+  width: 'Breite',
+  height: 'Höhe',
+  wall: 'Wandstärke',
+  hole: 'Loch-Ø',
+  count: 'Anzahl',
+  cols: 'Fächer in X',
+  rows: 'Fächer in Y',
+  cellL: 'Fach-Länge',
+  cellW: 'Fach-Breite',
+  cellH: 'Fach-Höhe',
+};
 
 /** Offline-Zuordnung: Text → beste Vorlage. */
 export function matchTemplate(text: string): Template {
@@ -464,40 +485,154 @@ export function matchTemplate(text: string): Template {
   return bestScore > 0 ? best : getTemplate('plate')!;
 }
 
-/** Liest Maße aus Freitext („120 x 40 x 20 mm“, „Ø 8“, „2 Schraubenlöcher“). */
+const WORDS: Record<string, number> = { ein: 1, eine: 1, einem: 1, zwei: 2, drei: 3, vier: 4, 'fünf': 5, fuenf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9, zehn: 10, elf: 11, 'zwölf': 12, zwoelf: 12 };
+const NUM = String.raw`(\d+(?:[.,]\d+)?)`;
+const UNIT = String.raw`\s*(mm|cm|m)?\b`;
+
+/**
+ * Liest Maße aus Freitext, z. B. „120 x 80 x 50 mm“, „25 cm lang“, „Höhe: 8 cm“, „Ø 8“, „M5“,
+ * „2 Schraubenlöcher“, „3 × 4 Fächer, Fach 60 × 60 × 120 mm“. Einheiten werden in mm umgerechnet.
+ */
 export function parseMeasuresFromText(text: string): Measures {
   const m: Measures = {};
-  const n = (x: string) => parseFloat(x.replace(',', '.'));
-  const dims = text.match(/(\d+(?:[.,]\d+)?)\s*(?:mm)?\s*[x×*]\s*(\d+(?:[.,]\d+)?)(?:\s*(?:mm)?\s*[x×*]\s*(\d+(?:[.,]\d+)?))?/i);
-  if (dims) {
-    m.length = n(dims[1]);
-    m.width = n(dims[2]);
-    if (dims[3]) m.height = n(dims[3]);
-  }
-  const lab = (re: RegExp) => {
-    const r = text.match(re);
-    return r ? n(r[1]) : undefined;
+  let s = ' ' + text.toLowerCase().replace(/[×✕✖*]/g, 'x').replace(/(\d)\s*,\s*(\d)/g, '$1.$2') + ' ';
+  for (const [w, v] of Object.entries(WORDS)) s = s.replace(new RegExp(`(^|[^a-zäöüß])${w}(?=\\s)`, 'g'), `$1${v}`);
+  const mm = (v: string, unit?: string) => {
+    const x = parseFloat(v);
+    return Math.round((unit === 'cm' ? x * 10 : unit === 'm' ? x * 1000 : x) * 100) / 100;
   };
-  m.length ??= lab(/länge\s*(?:von)?\s*(\d+(?:[.,]\d+)?)/i);
-  m.width ??= lab(/breite\s*(?:von)?\s*(\d+(?:[.,]\d+)?)/i);
-  m.height ??= lab(/höhe\s*(?:von)?\s*(\d+(?:[.,]\d+)?)/i);
-  m.wall ??= lab(/wand(?:stärke)?\s*(?:von)?\s*(\d+(?:[.,]\d+)?)/i);
-  m.hole ??= lab(/(?:ø|⌀|durchmesser|loch(?:durchmesser)?|bohrung|m)\s*(\d+(?:[.,]\d+)?)/i);
-  const c = text.match(/(\d+|zwei|drei|vier|fünf|sechs)\s*(?:schrauben)?(?:löcher|loecher|schrauben|bohrungen|fächer|faecher)/i);
-  if (c) {
-    const words: Record<string, number> = { zwei: 2, drei: 3, vier: 4, fünf: 5, sechs: 6 };
-    m.count = words[c[1].toLowerCase()] ?? parseInt(c[1], 10);
+  const used: [number, number][] = [];
+  const take = (re: RegExp, fn: (r: RegExpExecArray) => void) => {
+    re.lastIndex = 0;
+    let r: RegExpExecArray | null;
+    while ((r = re.exec(s))) {
+      const st = r.index,
+        en = r.index + r[0].length;
+      if (used.some(([a, b]) => st < b && en > a)) continue;
+      used.push([st, en]);
+      fn(r);
+    }
+  };
+  // 1) Fächer-Raster: „3 x 4 Fächer“, „Raster 3x4“
+  take(new RegExp(String.raw`(\d+)\s*x\s*(\d+)\s*(?:fächer|faecher|fach|felder|zellen|kästchen)`, 'g'), (r) => {
+    m.cols = +r[1];
+    m.rows = +r[2];
+    m.count = m.cols * m.rows;
+  });
+  take(new RegExp(String.raw`(?:raster|aufteilung|unterteilung)\s*:?\s*(\d+)\s*x\s*(\d+)`, 'g'), (r) => {
+    m.cols = +r[1];
+    m.rows = +r[2];
+    m.count = m.cols * m.rows;
+  });
+  // 2) Fach-/Innenmaß: „Fach 60 x 60 x 120 mm“, „je Fach 50x50“, „Fächer à 40 x 40“
+  take(new RegExp(String.raw`(?:fach|fächer|faecher|fachgröße|innenmaß(?:e)?\s+(?:je|pro)\s+fach)\s*(?:je|à|a|von|mit|:|größe)?\s*${NUM}${UNIT}\s*x\s*${NUM}${UNIT}(?:\s*x\s*${NUM}${UNIT})?`, 'g'), (r) => {
+    const u = r[2] ?? r[4] ?? r[6];
+    m.cellL = mm(r[1], r[2] ?? u);
+    m.cellW = mm(r[3], r[4] ?? u);
+    if (r[5]) m.cellH = mm(r[5], r[6] ?? u);
+  });
+  // 3) Gesamtmaße „L x B (x H)“ – erstes freies Tripel/Paar
+  let gotDims = false;
+  take(new RegExp(String.raw`${NUM}${UNIT}\s*x\s*${NUM}${UNIT}(?:\s*x\s*${NUM}${UNIT})?`, 'g'), (r) => {
+    if (gotDims) return;
+    gotDims = true;
+    const u = r[6] ?? r[4] ?? r[2];
+    m.length = mm(r[1], r[2] ?? u);
+    m.width = mm(r[3], r[4] ?? u);
+    if (r[5]) m.height = mm(r[5], r[6] ?? u);
+  });
+  // 4) Benannte Maße vor oder nach der Zahl
+  const named: [keyof Measures, string, string][] = [
+    ['length', 'länge|laenge|lang', 'lang|länge'],
+    ['width', 'breite|tiefe|breit|tief', 'breit|tief|breite|tiefe'],
+    ['height', 'höhe|hoehe|hoch|dicke|stärke|staerke', 'hoch|höhe|dick|stark'],
+  ];
+  // Wandstärke zuerst, damit „Wandstärke 2“ nicht als Höhe zählt
+  take(new RegExp(String.raw`wand(?:stärke|staerke|dicke)?\s*(?:von|=|:)?\s*${NUM}${UNIT}`, 'g'), (r) => {
+    m.wall = mm(r[1], r[2]);
+  });
+  take(new RegExp(String.raw`bodenstärke\s*(?:von|=|:)?\s*${NUM}${UNIT}`, 'g'), () => {});
+  for (const [k, before, after] of named) {
+    take(new RegExp(String.raw`(?:${before})\s*(?:von|=|:|ca\.?|etwa)?\s*${NUM}${UNIT}`, 'g'), (r) => {
+      if (m[k] === undefined) (m as Record<string, number>)[k] = mm(r[1], r[2]);
+    });
+    take(new RegExp(String.raw`${NUM}${UNIT}\s*(?:${after})\b`, 'g'), (r) => {
+      if (m[k] === undefined) (m as Record<string, number>)[k] = mm(r[1], r[2]);
+    });
   }
+  // 5) Loch / Durchmesser / Schraube
+  take(new RegExp(String.raw`(?:ø|⌀|durchmesser|loch(?:durchmesser)?|bohrung|innen-?ø|d\s*=)\s*(?:von|=|:)?\s*${NUM}${UNIT}`, 'g'), (r) => {
+    m.hole ??= mm(r[1], r[2]);
+  });
+  take(new RegExp(String.raw`${NUM}${UNIT}\s*(?:durchmesser|ø)`, 'g'), (r) => {
+    m.hole ??= mm(r[1], r[2]);
+  });
+  take(/\bm(\d{1,2})\b/g, (r) => {
+    m.hole ??= +r[1];
+  });
+  // 6) Anzahl Löcher / Fächer
+  take(/(\d+)\s*(?:schrauben)?(?:löcher|loecher|löchern|schrauben|bohrungen|befestigungslöcher)/g, (r) => {
+    if (m.cols === undefined) m.count = +r[1];
+  });
+  take(/(\d+)\s*(?:fächer|faecher|fächern|fächer|felder|figuren)/g, (r) => {
+    if (m.cols === undefined && m.count === undefined) m.count = +r[1];
+  });
+  for (const k of Object.keys(m) as (keyof Measures)[]) if (m[k] === undefined || !Number.isFinite(m[k]!)) delete m[k];
   return m;
+}
+
+/** Kurzbeschreibung, wie die Angaben verstanden wurden (für die Anzeige). */
+export function describeMeasures(ms: Measures): string[] {
+  const out: string[] = [];
+  const f = (v: number) => String(v).replace('.', ',');
+  if (ms.length !== undefined || ms.width !== undefined || ms.height !== undefined)
+    out.push(`Außen ${[ms.length, ms.width, ms.height].map((v) => (v === undefined ? '?' : f(v))).join(' × ')} mm`);
+  if (ms.cols !== undefined) out.push(`${ms.cols} × ${ms.rows} Fächer`);
+  else if (ms.count !== undefined) out.push(`Anzahl ${ms.count}`);
+  if (ms.cellL !== undefined) out.push(`Fach ${f(ms.cellL)} × ${f(ms.cellW ?? ms.cellL)}${ms.cellH !== undefined ? ` × ${f(ms.cellH)}` : ''} mm`);
+  if (ms.wall !== undefined) out.push(`Wand ${f(ms.wall)} mm`);
+  if (ms.hole !== undefined) out.push(`Loch Ø ${f(ms.hole)} mm`);
+  return out;
 }
 
 /** Überträgt Maße per Rolle auf die Parameter eines Modells. */
 export function applyMeasures(model: ModelDef, values: Record<string, number | boolean | string>, ms: Measures): Record<string, number | boolean | string> {
   const out = { ...values };
   const roleMap: Record<string, ParamRole> = { length: 'length', width: 'width', height: 'height', wall: 'wall', hole: 'hole', count: 'count' };
+  const byKey = (k: string) => model.params.find((x) => x.key === k);
+  const setKey = (k: string, v: number) => {
+    const p = byKey(k);
+    if (!p) return false;
+    if (p.min !== undefined) v = Math.max(p.min, v);
+    if (p.max !== undefined && v > p.max) p.max = v;
+    out[p.key] = v;
+    return true;
+  };
+  // Fächer-Raster und Fachmaße (Organizer/Setzkasten): Außenmaß aus Fächern berechnen
+  const hasGrid = !!(byKey('nx') && byKey('ny'));
+  if (hasGrid) {
+    let nx = ms.cols,
+      ny = ms.rows;
+    if (nx === undefined && ms.count !== undefined) {
+      // n Fächer → möglichst quadratisch aufteilen
+      nx = Math.ceil(Math.sqrt(ms.count));
+      ny = Math.ceil(ms.count / nx);
+    }
+    if (nx !== undefined) setKey('nx', nx);
+    if (ny !== undefined) setKey('ny', ny);
+    const w = ms.wall ?? (out['wall'] as number) ?? 1.6;
+    const fl = (out['floor'] as number) ?? 1.2;
+    const cx = (out['nx'] as number) ?? 1,
+      cy = (out['ny'] as number) ?? 1;
+    if (ms.cellL !== undefined && ms.length === undefined) setKey('L', Math.round((cx * ms.cellL + (cx + 1) * w) * 10) / 10);
+    if (ms.cellW !== undefined && ms.width === undefined) setKey('B', Math.round((cy * ms.cellW + (cy + 1) * w) * 10) / 10);
+    if (ms.cellH !== undefined && ms.height === undefined) setKey('H', Math.round((ms.cellH + fl) * 10) / 10);
+  }
   for (const [k, v] of Object.entries(ms)) {
     if (v === undefined || !Number.isFinite(v)) continue;
+    if (hasGrid && k === 'count') continue;
     const role = roleMap[k];
+    if (!role) continue;
     const p = model.params.find((x) => x.role === role);
     if (!p) continue;
     let val = v as number;

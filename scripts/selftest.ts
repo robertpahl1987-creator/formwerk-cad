@@ -17,6 +17,7 @@ import { runPipeline } from '../src/state/pipeline';
 import { DEFAULT_HOLLOW } from '../src/cad/build';
 import { PROFILES } from '../src/mesh/mesh';
 import { optimizePrint } from '../src/mesh/optimize';
+import { parseMeasuresFromText, applyMeasures, matchTemplate } from '../src/cad/templates';
 import { freeToModel, newPart, PRESETS, type FreePart } from '../src/cad/free';
 
 let fails = 0;
@@ -287,6 +288,37 @@ for (const id of ['hook', 'box', 'angle']) {
   const ok = plan.after.grams < plan.before.grams && plan.after.minutes < plan.before.minutes;
   if (!ok) fails++;
   console.log(`${ok ? '✓' : '✗'} Optimieren ${id}: ${plan.before.grams.toFixed(1)} g / ${plan.before.minutes.toFixed(0)} min → ${plan.after.grams.toFixed(1)} g / ${plan.after.minutes.toFixed(0)} min (X ${plan.orientation.rx}°, Y ${plan.orientation.ry}°) – ${plan.notes.join(' | ')}`);
+}
+
+// ---------------------------------------------------------------- Texterkennung
+{
+  const cases: [string, Record<string, number>][] = [
+    ['Box mit Deckel 120 x 80 x 50 mm, Wandstärke 2', { length: 120, width: 80, height: 50, wall: 2 }],
+    ['Setzkasten für 12 Figuren, 3 × 4 Fächer, Fach 60 × 60 × 120 mm', { cols: 3, rows: 4, count: 12, cellL: 60, cellW: 60, cellH: 120 }],
+    ['Kabelkanal 25 cm lang, 3 cm breit und 2 cm hoch', { length: 250, width: 30, height: 20 }],
+    ['Platte Länge: 15,5 cm, Breite 8 cm, Dicke 4 mm mit vier Löchern M4', { length: 155, width: 80, height: 4, count: 4, hole: 4 }],
+    ['Distanzhülse Außen 16, Innen M5, Höhe 12', { hole: 5, height: 12 }],
+    ['Wandhalterung für eine Bohrmaschine, Halsdurchmesser 43 mm', { hole: 43 }],
+    ['Halter um 5 mm versetzt, 60x40', { length: 60, width: 40 }],
+    ['Organizer mit 6 Fächern 200 x 150 x 40', { count: 6, length: 200, width: 150, height: 40 }],
+  ];
+  for (const [txt, want] of cases) {
+    checks++;
+    const got = parseMeasuresFromText(txt) as Record<string, number>;
+    const bad = Object.entries(want).filter(([k, v]) => got[k] !== v);
+    const extra = Object.keys(got).filter((k) => !(k in want));
+    const ok = !bad.length && !extra.length;
+    if (!ok) fails++;
+    console.log(`${ok ? '✓' : '✗'} Text „${txt}“ → ${JSON.stringify(got)}${bad.length ? ` FALSCH: ${bad.map(([k]) => k).join(',')}` : ''}${extra.length ? ` ZUVIEL: ${extra.join(',')}` : ''}`);
+  }
+  // Offline: Setzkasten aus Fachmaßen → Außenmaß
+  checks++;
+  const txt = 'Setzkasten 3 × 4 Fächer, Fach 60 × 60 × 120 mm, Wandstärke 2';
+  const tpl = matchTemplate(txt);
+  const vals = applyMeasures(structuredClone(tpl.model), defaultValues(tpl.model), parseMeasuresFromText(txt)) as Record<string, number>;
+  const ok = tpl.id === 'organizer' && vals.nx === 3 && vals.ny === 4 && vals.L === 188 && vals.B === 250 && vals.wall === 2;
+  if (!ok) fails++;
+  console.log(`${ok ? '✓' : '✗'} Offline Setzkasten: ${tpl.id} L ${vals.L} B ${vals.B} H ${vals.H} nx ${vals.nx} ny ${vals.ny} wall ${vals.wall}`);
 }
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);

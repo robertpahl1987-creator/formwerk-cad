@@ -1,4 +1,4 @@
-import { getTemplate } from '../cad/templates';
+import { getTemplate, MEASURE_LABEL } from '../cad/templates';
 
 const example = () => {
   const sp = getTemplate('spacer')!.model;
@@ -69,23 +69,19 @@ export interface UserRequest {
   contourHint?: string;
 }
 
-const LABELS: Record<string, string> = {
-  length: 'Länge',
-  width: 'Breite',
-  height: 'Höhe',
-  wall: 'Wandstärke',
-  hole: 'Lochdurchmesser',
-  count: 'Anzahl',
-};
+const LABELS: Record<string, string> = MEASURE_LABEL;
+const COUNTS = new Set(['count', 'cols', 'rows']);
 
 export function userPrompt(r: UserRequest): string {
   const ms = Object.entries(r.measures)
     .filter(([, v]) => v !== undefined && Number.isFinite(v))
-    .map(([k, v]) => `- ${LABELS[k] ?? k}: ${v} ${k === 'count' ? 'Stück' : 'mm'} (Pflichtmaß)`)
+    .map(([k, v]) => `- ${LABELS[k] ?? k}: ${v} ${COUNTS.has(k) ? 'Stück' : 'mm'} (Pflichtmaß)`)
     .join('\n');
   return [
     `AUFGABE: ${r.text.trim() || '(keine Beschreibung)'}`,
-    ms ? `MASSE:\n${ms}` : 'MASSE: keine vorgegeben – sinnvolle Standardmaße wählen.',
+    ms
+      ? `MASSE (aus der Aufgabe gelesen, in mm umgerechnet – exakt so übernehmen und jeweils als eigenen Parameter anlegen; „Fach“-Maße sind Innenmaße eines einzelnen Fachs, das Außenmaß ergibt sich daraus):\n${ms}`
+      : 'MASSE: keine vorgegeben – sinnvolle Standardmaße wählen.',
     `Drucktoleranz tol = ${r.tol} mm.`,
     r.multicolor ? 'MEHRFARBIG: Ja – teile das Modell in sinnvolle Farbteile (color-Knoten, Slots 1–4).' : '',
     r.imageInfo ? `FOTO: ${r.imageInfo}` : '',

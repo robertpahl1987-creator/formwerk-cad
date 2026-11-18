@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { generateFromText } from '../ai/generate';
 import { PROVIDER_LABEL, resolveProvider } from '../ai/providers';
-import type { Measures } from '../cad/templates';
+import { describeMeasures, parseMeasuresFromText, type Measures } from '../cad/templates';
 import { insideClaude } from '../platform/claude';
 import { useStore } from '../state/store';
 import { Button, NumberInput, Toggle } from './ui';
@@ -68,6 +68,20 @@ export function TextMode() {
           placeholder="z. B. Passgenauer Halter für eine Werkbank mit 2 Schraubenlöchern"
           className="mt-1 w-full rounded-lg bg-[#0d1117] border border-[#30363d] focus:border-[#00ae42] outline-none p-3 text-sm text-slate-100 resize-y min-h-[84px]"
         />
+        {text.trim() && (
+          <div className="mt-1.5 text-[11.5px] text-slate-400">
+            {(() => {
+              const d = describeMeasures({ ...parseMeasuresFromText(text), ...Object.fromEntries(Object.entries(ms).filter(([, v]) => v !== undefined)) });
+              return d.length ? (
+                <>
+                  <span className="text-[#3ddc84]">✓ Verstanden:</span> {d.join(' · ')}
+                </>
+              ) : (
+                <span>Keine Maße erkannt – schreib sie z. B. als „120 x 80 x 50 mm“, „25 cm lang“ oder „Höhe 8 cm“.</span>
+              );
+            })()}
+          </div>
+        )}
         <div className="flex flex-wrap gap-1.5 mt-1.5">
           {(allEx ? EXAMPLES : EXAMPLES.slice(0, 4)).map((ex) => (
             <button key={ex} onClick={() => setText(ex)} className="text-left text-[11px] px-2.5 py-1 rounded-full border border-[#30363d] text-slate-400 hover:text-white hover:border-[#00ae42]">
