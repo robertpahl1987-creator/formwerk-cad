@@ -340,7 +340,7 @@ export const TEMPLATES: Template[] = [
     'organizer',
     'Sortiereinsatz / Organizer',
     '🗂️',
-    ['organizer', 'sortier', 'sortiereinsatz', 'einsatz', 'schublade', 'fach', 'fächer', 'faecher', 'tray', 'ablage'],
+    ['organizer', 'sortier', 'sortiereinsatz', 'einsatz', 'schublade', 'fach', 'fächer', 'faecher', 'tray', 'ablage', 'setzkasten', 'vitrine', 'figuren'],
     'Schubladeneinsatz mit frei wählbarer Fächeraufteilung.',
     [
       num('L', 'Länge', 120, 20, 250, 0.5, { role: 'length' }),

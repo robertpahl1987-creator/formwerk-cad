@@ -13,6 +13,7 @@ const EXAMPLES = [
   'Box mit Deckel 120 x 80 x 50 mm, Wandstärke 2',
   'Türschild "Werkstatt" zweifarbig',
   'Distanzhülse Außen 16, Innen M5, Höhe 12',
+  'Setzkasten für 12 Figuren, 3 × 4 Fächer, Fach 60 × 60 × 120 mm',
 ];
 
 export const abortRef: { current: AbortController | null } = { current: null };
@@ -66,10 +67,10 @@ export function TextMode() {
           placeholder="z. B. Passgenauer Halter für eine Werkbank mit 2 Schraubenlöchern"
           className="mt-1 w-full rounded-lg bg-[#0d1117] border border-[#30363d] focus:border-[#00ae42] outline-none p-3 text-sm text-slate-100 resize-y min-h-[84px]"
         />
-        <div className="flex gap-1.5 overflow-x-auto pb-1 mt-1 fw-noscroll">
+        <div className="flex flex-wrap gap-1.5 mt-1.5">
           {EXAMPLES.map((ex) => (
-            <button key={ex} onClick={() => setText(ex)} className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-[#30363d] text-slate-400 hover:text-white hover:border-[#00ae42]">
-              {ex.length > 34 ? ex.slice(0, 32) + '…' : ex}
+            <button key={ex} onClick={() => setText(ex)} className="text-left text-[11px] px-2.5 py-1 rounded-full border border-[#30363d] text-slate-400 hover:text-white hover:border-[#00ae42]">
+              {ex}
             </button>
           ))}
         </div>
