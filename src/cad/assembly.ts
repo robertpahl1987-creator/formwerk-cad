@@ -69,13 +69,14 @@ function intoLocal(n: CadNode, it: AsmItem): CadNode {
 /** Zylinder entlang Weltachse k von s0 bis s1, Mittelpunkt (u, v) in den anderen Achsen. */
 function axisCyl(k: number, s0: number, s1: number, u: number, v: number, r: number, chamferTip = 0): CadNode {
   const h = s1 - s0;
+  // Fase an der Spitze als konvexe Hülle → sauberes, wasserdichtes Netz
   const body: CadNode =
     chamferTip > 0 && h > chamferTip * 2
       ? {
-          type: 'union',
+          type: 'hull',
           children: [
-            { type: 'cylinder', r: r3(r), h: r3(h - chamferTip + 0.01) },
-            { type: 'translate', v: [0, 0, r3(h - chamferTip)], children: [{ type: 'cylinder', r1: r3(r), r2: r3(Math.max(r - chamferTip, 0.3)), h: r3(chamferTip) }] },
+            { type: 'cylinder', r: r3(r), h: r3(h - chamferTip) },
+            { type: 'cylinder', r: r3(Math.max(r - chamferTip, 0.3)), h: r3(h) },
           ],
         }
       : { type: 'cylinder', r: r3(r), h: r3(h) };
@@ -244,9 +245,13 @@ export function pinsModel(count: number, d: number, depth: number): ModelDef {
       type: 'translate',
       v: [r3(x), r3(y), 0],
       children: [
-        { type: 'cylinder', r1: r3(r - 0.5), r2: r3(r), h: 0.51 },
-        { type: 'translate', v: [0, 0, 0.5], children: [{ type: 'cylinder', r: r3(r), h: r3(len - 1) }] },
-        { type: 'translate', v: [0, 0, r3(len - 0.51)], children: [{ type: 'cylinder', r1: r3(r), r2: r3(r - 0.5), h: 0.51 }] },
+        {
+          type: 'hull',
+          children: [
+            { type: 'cylinder', r: r3(r - 0.5), h: len },
+            { type: 'translate', v: [0, 0, 0.5], children: [{ type: 'cylinder', r: r3(r), h: r3(len - 1) }] },
+          ],
+        },
       ],
     });
   }
