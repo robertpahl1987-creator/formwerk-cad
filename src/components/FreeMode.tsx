@@ -261,6 +261,12 @@ export function FreeMode() {
   }, [parts, sels, active]);
   const nextGroup = () => Math.max(0, ...parts.map((p) => p.group ?? 0)) + 1;
   const runCommand = (c: FreeCommand) => {
+    if (c.type === 'load') {
+      undoStack.current = [];
+      setData({ parts: c.parts.map(withOutline), next: c.parts.reduce((m, p) => Math.max(m, p.id), 0) + 1 });
+      setSels([]);
+      return;
+    }
     if (c.type === 'select') {
       if (!c.ids.length) return setSel(null);
       return setSel(c.ids[0], c.additive);

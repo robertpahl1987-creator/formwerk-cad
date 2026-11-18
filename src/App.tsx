@@ -3,7 +3,7 @@ import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
 import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, ParamPanel, PrintCheck, SplitPanel } from './components/ModelPanels';
 import { ContextMenu } from './components/ContextMenu';
-import { AssemblyPanel } from './components/AssemblyPanel';
+import { AssemblyPanel, PlateBar } from './components/AssemblyPanel';
 import { asmSettings, assembledParts } from './state/assemblyBuild';
 import { EditPanel } from './components/EditPanel';
 import { freeBus, useFreeSnapshot } from './state/freeBus';
@@ -201,6 +201,7 @@ function PanelContent() {
   return (
     <>
       <StepNav />
+      <PlateBar />
       {state.buildError && (
         <div className="m-4 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-[13px] text-red-200 space-y-2">
           <div>

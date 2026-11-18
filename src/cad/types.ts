@@ -96,6 +96,8 @@ export interface ModelDef {
    * z. B. Dübellöcher und Steckzapfen aus der Baugruppe.
    */
   mods?: { sub: CadNode[]; add: CadNode[] };
+  /** Frei gebaut: die Bauteile, aus denen das Modell entstanden ist (zum Wiederöffnen) */
+  freeParts?: unknown[];
 }
 
 export interface Orientation {

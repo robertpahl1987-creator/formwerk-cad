@@ -20,6 +20,8 @@ export interface AsmState {
   /** Dübelstifte, die zusätzlich gedruckt werden müssen */
   pins: { count: number; d: number; depth: number } | null;
   report: string[] | null;
+  /** „Neue Platte“ gedrückt: das nächste erstellte Modell wird als neue Platte übernommen */
+  pendingNew?: boolean;
 }
 const ASM_KEY = 'formwerk-cad:baugruppe';
 function loadAsm(): AsmState {
@@ -164,6 +166,7 @@ export type Action =
   | { type: 'asmUpdate'; id: number; patch: Partial<AsmItem> }
   | { type: 'asmRemove'; id: number }
   | { type: 'asmClear' }
+  | { type: 'asmNew' }
   | { type: 'asmView'; view: AsmState['view'] }
   | { type: 'asmEdit'; id: number | null }
   | { type: 'asmJoints'; patch: Partial<AsmJointOptions> }
@@ -192,9 +195,11 @@ function reducer(s: State, a: Action): State {
     }
     case 'freeModel': {
       const fresh = s.model?.templateId !== 'frei';
+      // Gleiche Bauteile (z. B. Platte nur geöffnet) → Dübellöcher der Baugruppe behalten
+      const keepMods = !fresh && s.model?.mods && JSON.stringify(s.model.freeParts) === JSON.stringify(a.model.freeParts);
       return {
         ...s,
-        model: a.model,
+        model: keepMods ? { ...a.model, mods: s.model!.mods } : a.model,
         values: {},
         buildError: null,
         ...(fresh
@@ -257,7 +262,7 @@ function reducer(s: State, a: Action): State {
     }
     case 'asmAdd': {
       const id = s.asm.next;
-      return { ...s, asm: { ...s.asm, items: [...s.asm.items, { ...a.item, id }], next: id + 1, view: s.asm.view === 'off' ? 'assembled' : s.asm.view } };
+      return { ...s, asm: { ...s.asm, items: [...s.asm.items, { ...a.item, id }], next: id + 1, editing: id, pendingNew: false } };
     }
     case 'asmUpdate': {
       const moved = !!(a.patch.pos || a.patch.rot);
@@ -275,8 +280,20 @@ function reducer(s: State, a: Action): State {
       const items = s.asm.items.filter((it) => it.id !== a.id);
       return { ...s, asm: { ...s.asm, items, editing: s.asm.editing === a.id ? null : s.asm.editing, view: items.length ? s.asm.view : 'off' } };
     }
+    case 'asmNew':
+      return {
+        ...s,
+        model: null,
+        values: {},
+        build: null,
+        buildError: null,
+        building: false,
+        step: 'create',
+        history: s.model ? [...s.history.slice(-19), { model: s.model, values: s.values }] : s.history,
+        asm: { ...s.asm, editing: null, pendingNew: true, view: 'off' },
+      };
     case 'asmClear':
-      return { ...s, asm: { ...s.asm, items: [], view: 'off', editing: null, pins: null, report: null } };
+      return { ...s, asm: { ...s.asm, items: [], view: 'off', editing: null, pins: null, report: null, pendingNew: false } };
     case 'asmView':
       return { ...s, asm: { ...s.asm, view: a.view } };
     case 'asmEdit': {

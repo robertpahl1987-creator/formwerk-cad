@@ -439,6 +439,7 @@ export function freeToModel(parts: FreePart[]): ModelDef | null {
     root,
     source: 'custom',
     templateId: 'frei',
+    freeParts: parts,
   };
 }
 

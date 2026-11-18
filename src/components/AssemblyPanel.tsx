@@ -1,10 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { pinsModel, planJoints, type AsmItem, type AsmJoint, type V3 } from '../cad/assembly';
 import { stlBinary, threeMf, zipFiles, type ExportPart } from '../mesh/export';
 import { saveFile } from '../platform/download';
-import { asmSettings, assembledParts, buildItem, itemPolys, itemWorldBox } from '../state/assemblyBuild';
+import type { Dispatch } from 'react';
+import type { FreePart } from '../cad/free';
+import type { ModelDef, Value } from '../cad/types';
+import { asmSettings, assembledParts, autoPos, buildItem, itemPolys, itemWorldBox } from '../state/assemblyBuild';
+import { freeBus } from '../state/freeBus';
+import type { PipelineSettings } from '../state/pipeline';
 import type { PartResult } from '../state/pipeline';
-import { useStore } from '../state/store';
+import { useStore, type Action, type State } from '../state/store';
 import { Button, cx, NumberInput, Section } from './ui';
 
 const slug = (s: string) =>
@@ -36,6 +41,83 @@ const JOINTS: { j: AsmJoint; label: string; sub: string }[] = [
   { j: 'kleben', label: '🧴 Kleben', sub: 'nur bündige Flächen' },
 ];
 
+/** Modell als neue Platte in die Baugruppe übernehmen (wird danach direkt bearbeitet). */
+export function addModelAsPlate(dispatch: Dispatch<Action>, model: ModelDef, values: Record<string, Value>, items: AsmItem[], S: PipelineSettings) {
+  const pos = autoPos(model, values, items, S);
+  const n = items.filter((i) => !i.auto).length + 1;
+  dispatch({ type: 'asmAdd', item: { name: `Platte ${n}: ${model.name}`, model: { ...model, mods: undefined }, values, pos, rot: [0, 0, 0] } });
+}
+
+/** Platte zum Bearbeiten öffnen – frei gebaute Platten kommen mit allen Bauteilen zurück in den Baukasten. */
+export function openPlate(dispatch: Dispatch<Action>, items: AsmItem[], id: number, step?: 'create' | 'adjust') {
+  const it = items.find((i) => i.id === id);
+  if (!it) return;
+  dispatch({ type: 'asmEdit', id });
+  const free = it.model.templateId === 'frei' ? ((it.model.freeParts as FreePart[] | undefined) ?? []) : [];
+  freeBus.send({ type: 'load', parts: free });
+  if (it.model.templateId === 'frei') {
+    dispatch({ type: 'mode', mode: 'free' });
+    dispatch({ type: 'step', step: 'create' });
+  } else if (step) dispatch({ type: 'step', step });
+}
+
+/** Neue, leere Platte beginnen. Ein noch nicht übernommenes Teil wird vorher als Platte gespeichert. */
+export function newPlate(dispatch: Dispatch<Action>, state: State, S: PipelineSettings) {
+  const items = state.asm.items;
+  if (state.model && state.asm.editing === null && !state.asm.pendingNew) addModelAsPlate(dispatch, state.model, state.values, items, S);
+  dispatch({ type: 'asmNew' });
+  freeBus.send({ type: 'load', parts: [] });
+  dispatch({ type: 'toast', kind: 'info', text: 'Neue Platte: erstelle jetzt das nächste Teil – es wird automatisch angelegt' });
+}
+
+/** Leiste mit allen Platten – in jedem Schritt sichtbar. */
+export function PlateBar() {
+  const { state, dispatch } = useStore();
+  const asm = state.asm;
+  const items = asm.items.filter((i) => !i.auto);
+  const S = asmSettings(state.settings);
+  // Nach „Neue Platte“: das erste neu erstellte Modell wird automatisch eine Platte
+  useEffect(() => {
+    if (!asm.pendingNew || !state.model) return;
+    try {
+      addModelAsPlate(dispatch, state.model, state.values, asm.items, S);
+    } catch (e) {
+      dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asm.pendingNew, state.model]);
+  if (!items.length && !state.model && !asm.pendingNew) return null;
+  const chip = (active: boolean) =>
+    cx('h-8 px-2.5 rounded-lg border text-[12px] whitespace-nowrap shrink-0', active ? 'border-[#00ae42] bg-[#00ae42]/15 text-white' : 'border-[#30363d] text-slate-300 bg-[#0d1117]');
+  return (
+    <div className="px-4 pt-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">🧩 Platten</span>
+        {items.length > 0 && (
+          <button
+            className="text-[11px] text-[#3ddc84]"
+            onClick={() => dispatch({ type: 'asmView', view: asm.view === 'off' ? 'assembled' : asm.view === 'assembled' ? 'exploded' : 'off' })}
+          >
+            {asm.view === 'off' ? '👁 Zusammengebaut ansehen' : asm.view === 'assembled' ? '💥 Auseinander' : '🔹 Nur aktuelle Platte'}
+          </button>
+        )}
+      </div>
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {!items.length && state.model && <span className={chip(true)}>1 · aktuelles Teil</span>}
+        {items.map((it, i) => (
+          <button key={it.id} className={chip(asm.editing === it.id && asm.view === 'off')} onClick={() => openPlate(dispatch, asm.items, it.id)} title={it.name}>
+            {i + 1} · {it.model.name.slice(0, 16)}
+          </button>
+        ))}
+        {asm.pendingNew && <span className={chip(true)}>{items.length + 1} · neu …</span>}
+        <button className="h-8 px-2.5 rounded-lg border border-dashed border-[#00ae42] text-[12px] text-[#3ddc84] whitespace-nowrap shrink-0" onClick={() => newPlate(dispatch, state, S)}>
+          ＋ Neue Platte
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AssemblyPanel() {
   const { state, dispatch } = useStore();
   const asm = state.asm;
@@ -57,28 +139,11 @@ export function AssemblyPanel() {
     }
   };
 
-  /** Neue Platte bündig rechts an die bisherige Baugruppe setzen. */
+  /** Aktuelles Teil als neue Platte bündig rechts an die bisherige Baugruppe setzen. */
   const addCurrent = () =>
     run('Füge hinzu …', () => {
       if (!state.model) return;
-      const probe: AsmItem = { id: -1, name: state.model.name, model: { ...state.model, mods: undefined }, values: state.values, pos: [0, 0, 0], rot: [0, 0, 0] };
-      const lb = itemWorldBox(probe, S);
-      let pos: V3 = [0, 0, -lb.min[2]];
-      if (items.length) {
-        const min: V3 = [Infinity, Infinity, Infinity],
-          max: V3 = [-Infinity, -Infinity, -Infinity];
-        for (const it of items) {
-          const b = itemWorldBox(it, S);
-          for (let k = 0; k < 3; k++) {
-            min[k] = Math.min(min[k], b.min[k]);
-            max[k] = Math.max(max[k], b.max[k]);
-          }
-        }
-        pos = [r1(max[0] - lb.min[0]), r1(min[1] - lb.min[1]), r1(min[2] - lb.min[2])];
-      }
-      const n = items.length + 1;
-      dispatch({ type: 'asmAdd', item: { name: `Platte ${n}: ${state.model.name}`, model: probe.model, values: state.values, pos, rot: [0, 0, 0] } });
-      dispatch({ type: 'toast', kind: 'ok', text: `Platte ${n} hinzugefügt – Ansicht „Zusammengebaut“` });
+      addModelAsPlate(dispatch, state.model, state.values, items, S);
     });
 
   const snap = (it: AsmItem, target: AsmItem, side: Side) =>
@@ -172,15 +237,8 @@ export function AssemblyPanel() {
         <Button variant="primary" disabled={!state.model || !!working} onClick={addCurrent}>
           ➕ {editingItem ? 'Als Kopie hinzufügen' : 'Aktuelles Teil hinzufügen'}
         </Button>
-        <Button
-          disabled={!!working}
-          onClick={() => {
-            dispatch({ type: 'asmEdit', id: null });
-            dispatch({ type: 'step', step: 'create' });
-            dispatch({ type: 'toast', kind: 'info', text: 'Neues Teil erstellen, dann in Schritt 3 „Aktuelles Teil hinzufügen“' });
-          }}
-        >
-          ✨ Neues Teil bauen
+        <Button disabled={!!working} onClick={() => newPlate(dispatch, state, S)}>
+          ✨ Neue Platte
         </Button>
       </div>
 
@@ -213,10 +271,7 @@ export function AssemblyPanel() {
                     <button
                       title="Bearbeiten"
                       className="h-8 px-2 rounded-md border border-[#30363d] text-[12px]"
-                      onClick={() => {
-                        dispatch({ type: 'asmEdit', id: it.id });
-                        dispatch({ type: 'step', step: 'adjust' });
-                      }}
+                      onClick={() => openPlate(dispatch, items, it.id, 'adjust')}
                     >
                       ✏️
                     </button>

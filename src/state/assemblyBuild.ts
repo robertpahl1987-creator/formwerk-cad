@@ -132,3 +132,22 @@ export function asmSettings(s: {
     hollow: s.hollow,
   };
 }
+
+/** Lage für eine neue Platte: bündig rechts neben die bisherige Baugruppe. */
+export function autoPos(model: AsmItem['model'], values: AsmItem['values'], items: AsmItem[], s: PipelineSettings): V3 {
+  const probe: AsmItem = { id: -1, name: '', model: { ...model, mods: undefined }, values, pos: [0, 0, 0], rot: [0, 0, 0] };
+  const lb = itemWorldBox(probe, s);
+  const real = items.filter((i) => !i.auto);
+  if (!real.length) return [0, 0, Math.round(-lb.min[2] * 10) / 10];
+  const min: V3 = [Infinity, Infinity, Infinity],
+    max: V3 = [-Infinity, -Infinity, -Infinity];
+  for (const it of real) {
+    const b = itemWorldBox(it, s);
+    for (let k = 0; k < 3; k++) {
+      min[k] = Math.min(min[k], b.min[k]);
+      max[k] = Math.max(max[k], b.max[k]);
+    }
+  }
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  return [r1(max[0] - lb.min[0]), r1(min[1] - lb.min[1]), r1(min[2] - lb.min[2])];
+}
