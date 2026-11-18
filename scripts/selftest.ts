@@ -16,6 +16,7 @@ import { stlBinary } from '../src/mesh/export';
 import { runPipeline } from '../src/state/pipeline';
 import { DEFAULT_HOLLOW } from '../src/cad/build';
 import { PROFILES } from '../src/mesh/mesh';
+import { optimizePrint } from '../src/mesh/optimize';
 import { freeToModel, newPart, PRESETS, type FreePart } from '../src/cad/free';
 
 let fails = 0;
@@ -267,6 +268,18 @@ await (async () => {
     }
   }
 })();
+
+// ---------------------------------------------------------------- Schnell & sparsam
+for (const id of ['hook', 'box', 'angle']) {
+  const t = TEMPLATES.find((x) => x.id === id);
+  if (!t) continue;
+  checks++;
+  const polys = buildParts(t.model, defaultValues(t.model), { tol: 0.2, fase: true }, { rx: 0, ry: 0 }).parts.flatMap((p) => p.polys);
+  const plan = optimizePrint(meshFromPolygons(polys), { profile: PROFILES.standard, layer: 0.2, orientation: { rx: 0, ry: 0 } }, { load: false, fine: false, orient: true }, { overhangDeg: 45, density: 1.24, bedSize: 256, bedHeight: 256 });
+  const ok = plan.after.grams < plan.before.grams && plan.after.minutes < plan.before.minutes;
+  if (!ok) fails++;
+  console.log(`${ok ? '✓' : '✗'} Optimieren ${id}: ${plan.before.grams.toFixed(1)} g / ${plan.before.minutes.toFixed(0)} min → ${plan.after.grams.toFixed(1)} g / ${plan.after.minutes.toFixed(0)} min (X ${plan.orientation.rx}°, Y ${plan.orientation.ry}°) – ${plan.notes.join(' | ')}`);
+}
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);
 if (fails) process.exit(1);

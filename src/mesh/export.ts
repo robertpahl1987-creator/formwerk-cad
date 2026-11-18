@@ -66,6 +66,8 @@ export interface ThreeMfOptions {
   description?: string;
   /** Füllung/Wände – werden als Objekt-Einstellungen für Bambu Studio / OrcaSlicer gespeichert */
   profile?: PrintProfile;
+  /** Schichthöhe in mm (Objekt-Einstellung) */
+  layer?: number;
 }
 
 /** Ein druckbares Objekt (ggf. aus mehreren Farbteilen), Koordinaten relativ zur Bettmitte. */
@@ -74,9 +76,10 @@ export interface ExportObject {
   parts: ExportPart[];
 }
 
-function profileMeta(p: PrintProfile | undefined, ind: string): string {
+function profileMeta(p: PrintProfile | undefined, ind: string, layer?: number): string {
   if (!p) return '';
   return [
+    ...(layer ? [['layer_height', String(layer)]] : []),
     ['sparse_infill_density', `${Math.round(p.infill * 100)}%`],
     ['sparse_infill_pattern', p.pattern],
     ['wall_loops', String(p.walls)],
@@ -129,7 +132,7 @@ export async function threeMf(objects: ExportObject[], opt: ThreeMfOptions): Pro
     cfg.push(`  <object id="${objId}">
     <metadata key="name" value="${xmlEsc(obj.name)}"/>
     <metadata key="extruder" value="${obj.parts[0]?.slot ?? 1}"/>
-${profileMeta(opt.profile, '    ')}
+${profileMeta(opt.profile, '    ', opt.layer)}
 ${obj.parts
   .map(
     (p, i) => `    <part id="${partIds[i]}" subtype="normal_part">

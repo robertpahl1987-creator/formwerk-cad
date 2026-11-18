@@ -229,13 +229,13 @@ export function AssemblyPanel() {
         i++;
         const r = buildItem(it, S);
         const fname = `${String(i).padStart(2, '0')}_${slug(it.model.name)}.3mf`;
-        files.push({ name: fname, data: await threeMf([{ name: it.name, parts: toExport(r.parts) }], { title: it.name, bedSize: S.bedSize, description: it.model.description, profile: S.profile }) });
+        files.push({ name: fname, data: await threeMf([{ name: it.name, parts: toExport(r.parts) }], { title: it.name, bedSize: S.bedSize, description: it.model.description, profile: S.profile, layer: S.layer }) });
         lines.push(`${it.name}: ${fname}${r.fitsBed ? '' : '  ⚠ passt nicht aufs Druckbett – im Slicer teilen oder hier „Auf Platten aufteilen“ nutzen'}`);
       }
       if (asm.pins) {
         const pm = pinsModel(asm.pins.count, asm.pins.d, asm.pins.depth);
         const r = buildItem({ id: -2, name: pm.name, model: pm, values: {}, pos: [0, 0, 0], rot: [0, 0, 0] }, S);
-        files.push({ name: '99_duebel.3mf', data: await threeMf([{ name: pm.name, parts: toExport(r.parts) }], { title: pm.name, bedSize: S.bedSize, description: pm.description, profile: S.profile }) });
+        files.push({ name: '99_duebel.3mf', data: await threeMf([{ name: pm.name, parts: toExport(r.parts) }], { title: pm.name, bedSize: S.bedSize, description: pm.description, profile: S.profile, layer: S.layer }) });
         lines.push(`Dübelstifte: 99_duebel.3mf (${asm.pins.count} Stück, Ø ${asm.pins.d} mm)`);
       }
       lines.push('', 'Verbindungen:', ...(asm.report ?? ['(noch nicht berechnet)']), '');

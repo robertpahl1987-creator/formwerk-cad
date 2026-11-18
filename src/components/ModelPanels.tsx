@@ -6,6 +6,7 @@ import type { ParamDef } from '../cad/types';
 import { stlBinary, stlPerColorZip, threeMf, zipFiles, type ExportObject, type ExportPart } from '../mesh/export';
 import { bestOrientation, MATERIALS, mergeMeshes, PATTERN_LABEL, PROFILES, rotateMesh, type InfillPattern, type PrintProfile } from '../mesh/mesh';
 import { saveFile } from '../platform/download';
+import { optimizePrint, type OptimizePlan } from '../mesh/optimize';
 import type { PartResult } from '../state/pipeline';
 import { useStore } from '../state/store';
 import { Button, cx, NumberInput, Section, SliderRow, Stat, Toggle } from './ui';
@@ -621,12 +622,12 @@ export function ExportPanel() {
         const files: { name: string; data: Blob | string }[] = [];
         for (const pl of b.plates) {
           const objs: ExportObject[] = pl.items.map((it) => ({ name: b.pieces![it.piece].label, parts: toExport(it.parts) }));
-          files.push({ name: `${base}_platte${pl.index}.3mf`, data: await threeMf(objs, { title: `${m.name} – Platte ${pl.index}`, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile }) });
+          files.push({ name: `${base}_platte${pl.index}.3mf`, data: await threeMf(objs, { title: `${m.name} – Platte ${pl.index}`, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile, layer: state.settings.layer }) });
         }
         files.push({ name: 'Montageanleitung.txt', data: guide() });
         done(await saveFile(`${base}_${b.plates.length}-platten.zip`, await zipFiles(files)), `${b.plates.length} Platten als 3MF`);
       } else {
-        const blob = await threeMf([{ name: m.name, parts: toExport(b.parts) }], { title: m.name, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile });
+        const blob = await threeMf([{ name: m.name, parts: toExport(b.parts) }], { title: m.name, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile, layer: state.settings.layer });
         done(await saveFile(`${base}.3mf`, blob), '3MF');
       }
     });
@@ -671,6 +672,89 @@ export function ExportPanel() {
       <p className="text-[11px] text-slate-500">
         3MF enthält Millimeter-Einheiten, Metadaten, Farbteile mit AMS-Slot und Füllungs-Einstellungen. Alle Dateien werden lokal im Browser erzeugt.
       </p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------- Schnell & sparsam
+export function OptimizePanel() {
+  const { state, dispatch } = useStore();
+  const [load, setLoad] = useState(false);
+  const [fine, setFine] = useState<boolean | null>(null);
+  const [plan, setPlan] = useState<(OptimizePlan & { prev: { profile: PrintProfile; layer: number; orientation: { rx: number; ry: number } } }) | null>(null);
+  const [busy, setBusy] = useState(false);
+  const b = state.build;
+  const m = state.model;
+  if (!b || !m) return null;
+  const hasText = JSON.stringify(m.root).includes('"type":"text"') || !!m.freeParts?.some((p) => (p as { kind?: string }).kind === 'text');
+  const isFine = fine ?? hasText;
+  const s = state.settings;
+  const run = () => {
+    setBusy(true);
+    setTimeout(() => {
+      try {
+        const merged = mergeMeshes(b.parts.map((p) => p.mesh));
+        const unrot = rotateMesh(rotateMesh(merged, 0, -state.orientation.ry), -state.orientation.rx, 0);
+        const density = MATERIALS.find((x) => x.id === s.material)?.density ?? 1.24;
+        const prev = { profile: s.profile, layer: s.layer, orientation: state.orientation };
+        const p = optimizePrint(unrot, prev, { load, fine: isFine, orient: !b.pieces }, { overhangDeg: s.overhangDeg, density, bedSize: s.bedSize, bedHeight: s.bedHeight });
+        dispatch({ type: 'settings', patch: { profile: p.profile, layer: p.layer } });
+        if (p.orientation.rx !== state.orientation.rx || p.orientation.ry !== state.orientation.ry) dispatch({ type: 'orientation', o: p.orientation });
+        setPlan({ ...p, prev });
+        const dg = p.before.grams - p.after.grams,
+          dm = p.before.minutes - p.after.minutes;
+        dispatch({ type: 'toast', kind: 'ok', text: `Optimiert: ${dg > 0 ? `−${g1(dg)} g` : 'Material gleich'}, ${dm > 0 ? `−${hm(dm)}` : 'Zeit gleich'}` });
+      } catch (e) {
+        dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
+      } finally {
+        setBusy(false);
+      }
+    }, 30);
+  };
+  const undo = () => {
+    if (!plan) return;
+    dispatch({ type: 'settings', patch: { profile: plan.prev.profile, layer: plan.prev.layer } });
+    dispatch({ type: 'orientation', o: plan.prev.orientation });
+    setPlan(null);
+    dispatch({ type: 'toast', kind: 'info', text: 'Vorherige Einstellungen wiederhergestellt' });
+  };
+  const pct = (a: number, z: number) => (a > 0 ? Math.round((1 - z / a) * 100) : 0);
+  return (
+    <Section title="⚡ Schnell & sparsam drucken">
+      <p className="text-[12px] text-slate-400 leading-snug">Ein Klick: beste Lage auf dem Bett (wenig Stützen, wenig Höhe), gröbere Schichten und eine sparsame Füllung. Wird mit ins 3MF geschrieben.</p>
+      <Toggle label="Teil muss Kräfte aushalten" hint="z. B. Halter, Haken, Klemmen – dann etwas mehr Füllung und Wände" checked={load} onChange={setLoad} />
+      <Toggle label="Feine Details (Schrift)" hint={hasText ? 'Automatisch an, weil Schrift im Modell ist' : 'Dann 0,2 mm statt 0,28 mm Schichten'} checked={isFine} onChange={setFine} />
+      <Button variant="primary" className="w-full" disabled={busy} onClick={run}>
+        {busy ? 'Rechne …' : '⚡ Automatisch optimieren'}
+      </Button>
+      {plan && (
+        <div className="rounded-lg border border-[#00ae42]/40 bg-[#00ae42]/10 p-3 space-y-2 text-[12.5px]">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div />
+            <div className="text-slate-400">vorher</div>
+            <div className="text-white font-semibold">jetzt</div>
+            <div className="text-left text-slate-400">Filament</div>
+            <div className="text-slate-400">{g1(plan.before.grams)} g</div>
+            <div className="text-white font-semibold">
+              {g1(plan.after.grams)} g <span className="text-[#3ddc84]">−{pct(plan.before.grams, plan.after.grams)} %</span>
+            </div>
+            <div className="text-left text-slate-400">Druckzeit</div>
+            <div className="text-slate-400">{hm(plan.before.minutes)}</div>
+            <div className="text-white font-semibold">
+              {hm(plan.after.minutes)} <span className="text-[#3ddc84]">−{pct(plan.before.minutes, plan.after.minutes)} %</span>
+            </div>
+          </div>
+          <ul className="text-slate-300 space-y-0.5 list-disc pl-4">
+            {plan.notes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-slate-400">Im Bambu Studio zusätzlich das Druckprofil „0.28mm Extra Draft“ (bzw. 0.20 mm Standard) wählen – die Objekt-Einstellungen aus der Datei werden übernommen.</p>
+          <Button className="w-full h-9" onClick={undo}>
+            ↶ Rückgängig
+          </Button>
+        </div>
+      )}
     </Section>
   );
 }
