@@ -47,7 +47,20 @@ export type CadNode =
   /** Horizontales Loch mit 45°-Spitze nach oben (überhangfrei druckbar), immer zentriert. */
   | { type: 'teardrop'; r?: Expr; d?: Expr; h: Expr; axis?: 'x' | 'y' | 'z' }
   /** Außengewinde (Achse Z, von z=0 bis h). d = Außendurchmesser, iso = metrisches 60°-Profil, sonst druckoptimiert 45°. Als Loch: d + 2*tol */
-  | { type: 'thread'; d: Expr; pitch: Expr; h: Expr; iso?: boolean; chamfer?: boolean; left?: boolean }
+  | {
+      type: 'thread';
+      d: Expr;
+      pitch: Expr;
+      h: Expr;
+      iso?: boolean;
+      chamfer?: boolean;
+      left?: boolean;
+      /** Innengewinde: Rohr/Mutter mit Außendurchmesser od (odfn = Ecken, z. B. 6 für Sechskant) und optionalem Boden */
+      internal?: boolean;
+      od?: Expr;
+      odfn?: Expr;
+      floor?: Expr;
+    }
   | { type: 'union' | 'difference' | 'intersection' | 'hull'; children: CadNode[] }
   | { type: 'translate'; v: Vec3; children: CadNode[] }
   | { type: 'rotate'; a: Vec3; children: CadNode[] }

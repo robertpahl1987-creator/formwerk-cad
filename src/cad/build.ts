@@ -92,6 +92,71 @@ function threadGeom(d: number, p: number, h: number, iso: boolean, chamfer: bool
   return G.geom3.fromPoints(polys);
 }
 
+/**
+ * Innengewinde als geschlossenes Rohr-/Mutternetz: außen Kreis oder Vieleck (Sechskant),
+ * innen Gewinde mit Einführfase oben; optional geschlossener Boden (Deckel). Ohne Boolesche Operationen.
+ */
+function internalThreadGeom(d: number, p: number, h: number, iso: boolean, left: boolean, od: number, odfn: number, floor: number, chamfer: boolean): Geom {
+  const { r } = threadProfile(p, iso);
+  const R = d / 2;
+  const Ro = od / 2;
+  let N = clamp(Math.round((Math.PI * d) / 0.5 / 8) * 8, 48, 168);
+  N = Math.ceil(N / 24) * 24;
+  const fl = clamp(floor, 0, h - p);
+  const rowsIn = Math.max(2, Math.ceil((h - fl) / (p / 12)));
+  const outR = (th: number) => {
+    if (odfn < 3) return Ro;
+    const seg = (2 * Math.PI) / odfn;
+    const a = Ro * Math.cos(Math.PI / odfn);
+    return a / Math.cos((((th % seg) + seg) % seg) - Math.PI / odfn);
+  };
+  const rin = (th: number, z: number) => {
+    const phi = ((((z / p) + (left ? 1 : -1) * (th / (2 * Math.PI))) % 1) + 1) % 1;
+    let rr = R - r(phi);
+    if (chamfer) {
+      rr = Math.max(rr, R + 0.4 - (h - z)); // Einführfase oben
+      if (fl <= 0) rr = Math.max(rr, R + 0.4 - z); // und unten (durchgehend)
+    }
+    return Math.min(rr, Math.min(outR(th), Ro) - 0.6);
+  };
+  const ang = Array.from({ length: N }, (_, i) => (2 * Math.PI * i) / N);
+  const ring = (f: (th: number) => number, z: number) => ang.map((th) => [f(th) * Math.cos(th), f(th) * Math.sin(th), z]);
+  const outB = ring(outR, 0),
+    outT = ring(outR, h);
+  const inner: number[][][] = [];
+  for (let j = 0; j <= rowsIn; j++) {
+    const z = fl + ((h - fl) * j) / rowsIn;
+    inner.push(ring((th) => rin(th, z), z));
+  }
+  const polys: number[][][] = [];
+  const nx = (i: number) => (i + 1) % N;
+  for (let i = 0; i < N; i++) {
+    // außen
+    polys.push([outB[i], outB[nx(i)], outT[nx(i)]], [outB[i], outT[nx(i)], outT[i]]);
+    // oben: Ring zwischen außen und Gewinde
+    const it = inner[rowsIn];
+    polys.push([outT[i], outT[nx(i)], it[nx(i)]], [outT[i], it[nx(i)], it[i]]);
+    // innen (Normalen zeigen zur Achse)
+    for (let j = 0; j < rowsIn; j++) {
+      const a = inner[j][i],
+        b = inner[j][nx(i)],
+        c = inner[j + 1][nx(i)],
+        e = inner[j + 1][i];
+      polys.push([a, c, b], [a, e, c]);
+    }
+    if (fl > 0) {
+      // Boden unten (volle Scheibe) + Innenboden oben auf fl
+      polys.push([[0, 0, 0], outB[nx(i)], outB[i]]);
+      polys.push([[0, 0, fl], inner[0][i], inner[0][nx(i)]]);
+    } else {
+      // durchgehend: Ring unten
+      const ib = inner[0];
+      polys.push([outB[i], ib[i], ib[nx(i)]], [outB[i], ib[nx(i)], outB[nx(i)]]);
+    }
+  }
+  return G.geom3.fromPoints(polys);
+}
+
 function segs(r: number, fn?: number): number {
   if (fn && fn >= 3) return Math.max(4, Math.ceil(fn / 4) * 4);
   // In 16er-Stufen: benachbarte Radien (Bohrung + Fase/Senkung) bekommen dieselbe
@@ -243,6 +308,13 @@ function build(n: CadNode, ctx: Ctx): Geom[] {
       const p = positive(num(n.pitch, s, 'thread.pitch'), 'Steigung');
       const h = positive(num(n.h, s, 'thread.h'), 'Gewindelänge');
       if (p > d / 2) throw new BuildError('Steigung zu groß für den Durchmesser');
+      if (n.internal) {
+        const od = positive(num(n.od ?? `${d} + 4`, s, 'thread.od'), 'Außendurchmesser');
+        if (od <= d + 0.4) throw new BuildError('Außendurchmesser zu klein für das Innengewinde');
+        const odfn = n.odfn !== undefined ? Math.round(num(n.odfn, s, 'thread.odfn')) : 0;
+        const fl = n.floor !== undefined ? num(n.floor, s, 'thread.floor') : 0;
+        return [internalThreadGeom(d, p, h, !!n.iso, !!n.left, od, odfn, fl, n.chamfer !== false)];
+      }
       return [threadGeom(d, p, h, !!n.iso, !!n.chamfer, !!n.left)];
     }
     case 'teardrop': {

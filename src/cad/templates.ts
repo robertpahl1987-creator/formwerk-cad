@@ -457,7 +457,7 @@ export const TEMPLATES: Template[] = [
         Ht = '7*gz';
       const foot: CadNode = {
         type: 'hull',
-        children: [slab('35.6', '35.6', '0.8', '0'), slab('37.2', '37.2', '1.6', '0.79'), slab('37.2', '37.2', '1.6', '2.6'), slab('41.5', '41.5', '3.75', '4.74')],
+        children: [slab('35.6', '35.6', '0.8', '0'), slab('37.2', '37.2', '1.6', '0.79'), slab('37.2', '37.2', '1.6', '2.6'), slab('41.3', '41.3', '3.65', '4.85')],
       };
       const perUnit = (...kids: CadNode[]): CadNode => ({
         type: 'for',
@@ -475,7 +475,7 @@ export const TEMPLATES: Template[] = [
             type: 'hull',
             children: [slab(`${W} - 2*wall`, `${D} - 2*wall`, 'max(3.75 - wall, 0.5)', fl), slab(`${W} - 2*wall`, `${D} - 2*wall`, 'max(3.75 - wall, 0.5)', `${Ht} - 1.6`), slab(`${W} - 5.2`, `${D} - 5.2`, '1.15', `${Ht}`)],
           },
-          { type: 'hull', children: [slab(`${W} - 5.2`, `${D} - 5.2`, '1.15', `${Ht} - 0.01`), slab(`${W} - 1.4`, `${D} - 1.4`, '3.05', `${Ht} + 4.41`)] },
+          { type: 'hull', children: [slab(`${W} - 5.0`, `${D} - 5.0`, '1.25', `${Ht} - 0.6`), slab(`${W} - 1.4`, `${D} - 1.4`, '3.05', `${Ht} + 4.41`)] },
         ],
         else: [T([0, 0, fl], rrect(`${W} - 2*wall`, `${D} - 2*wall`, 'max(3.75 - wall, 0.5)', `${Ht} + 2`))],
       };
@@ -485,14 +485,14 @@ export const TEMPLATES: Template[] = [
           var: 'k',
           from: 1,
           to: 'cx - 1',
-          children: [T([`-(${W})/2 + wall + k*((${W}) - 2*wall)/cx`, 0, `${fl} - 0.01`], { type: 'cube', size: ['1.2', `${D} - wall`, `${Ht} - ${fl} - (lip ? 1.6 : 0) + 0.01`], center: false })],
+          children: [T([`-(${W})/2 + wall + k*((${W}) - 2*wall)/cx`, 0, `${fl} - 0.3`], { type: 'cube', size: ['1.2', `${D} - wall`, `${Ht} - ${fl} - (lip ? 1.9 : 0) + 0.3`], center: false })],
         },
         {
           type: 'for',
           var: 'k',
           from: 1,
           to: 'cy - 1',
-          children: [T([0, `-(${D})/2 + wall + k*((${D}) - 2*wall)/cy`, `${fl} - 0.01`], { type: 'cube', size: [`${W} - wall`, '1.2', `${Ht} - ${fl} - (lip ? 1.6 : 0) + 0.01`], center: false })],
+          children: [T([0, `-(${D})/2 + wall + k*((${D}) - 2*wall)/cy`, `${fl} - 0.3`], { type: 'cube', size: [`${W} - wall`, '1.2', `${Ht} - ${fl} - (lip ? 1.9 : 0) + 0.3`], center: false })],
         },
       ];
       // Trennwände mittig auf die Koordinate setzen (cube mit center:false → um halbe Stärke/Länge versetzen)
@@ -636,7 +636,7 @@ export const TEMPLATES: Template[] = [
           ),
           T([0, 0, 'wall'], { type: 'cylinder', d: 'D', h: 'H' }),
         ),
-        T([`${Dl} + 8`, 0, 0], diff({ type: 'cylinder', d: Dl, h: 'thl + 2.4' }, T([0, 0, 2.4], { type: 'thread', d: `${dm} + 2*tol`, pitch: 'p', h: 'thl + 1' }), T([0, 0, 'thl + 2.4 - 0.6'], { type: 'cylinder', r1: `(${dm})/2 + tol - 0.75*p*0.5`, r2: `(${dm})/2 + tol + 0.6`, h: 0.61 }))),
+        T([`${Dl} + 8`, 0, 0], { type: 'thread', internal: true, d: `${dm} + 2*tol`, pitch: 'p', h: 'thl + 2.4', od: Dl, floor: 2.4 }),
       ];
     })(),
   ),
@@ -667,7 +667,7 @@ export const TEMPLATES: Template[] = [
           type: 'if',
           cond: 'nut',
           then: [
-            T([`(${s}) * 1.2 + 8`, 0, 0], diff({ type: 'cylinder', d: `(${s}) * 1.1547`, h: 'M*0.8', fn: 6 }, T([0, 0, -0.93], { type: 'thread', d: 'M + 2*tol', pitch, h: 'M*0.8 + 1.87', iso: true }))),
+            T([`(${s}) * 1.2 + 8`, 0, 0], { type: 'thread', internal: true, d: 'M + 2*tol', pitch, h: 'M*0.8', iso: true, od: `(${s}) * 1.1547`, odfn: 6 }),
           ],
         },
       ];
