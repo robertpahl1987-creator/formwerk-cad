@@ -292,29 +292,36 @@ function textSolid(text: string, size0: number, h: number, stroke: number | unde
     }
   }
   const sw = Math.min(stroke && stroke > 0 ? stroke : Math.max(0.6, size * 0.16), size * 0.3);
-  const shapes: Geom[] = [];
+  // Jeder Strich wird als Kette konvexer 3D-Körper (Hülle zweier Zylinder) gebaut und
+  // im Raum vereinigt. Das ist robuster als 2D-Umrisse, die sich bei engen Kurven
+  // selbst überlappen und dann nicht-manifolde Deckflächen erzeugen.
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
+  const r = sw / 2;
+  const strokes: Geom[] = [];
   for (const seg of segments) {
     if (!seg || seg.length < 2) continue;
-    for (const [x, y] of seg) {
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minY = Math.min(minY, y);
-      maxY = Math.max(maxY, y);
+    const pts: [number, number][] = [];
+    for (const p of seg) {
+      const q = pts[pts.length - 1];
+      if (!q || Math.hypot(p[0] - q[0], p[1] - q[1]) > r * 0.25) pts.push(p);
     }
-    const path = G.path2.fromPoints({ closed: false }, seg);
-    shapes.push(X.expand({ delta: sw / 2, corners: 'round', segments: 16 }, path));
+    if (pts.length === 1) pts.push(seg[seg.length - 1]);
+    for (const [x, y] of pts) {
+      minX = Math.min(minX, x - r);
+      maxX = Math.max(maxX, x + r);
+      minY = Math.min(minY, y - r);
+      maxY = Math.max(maxY, y + r);
+    }
+    const dots = pts.map(([x, y]) => P.cylinder({ radius: r, height: h, segments: 16, center: [x, y, h / 2] }));
+    strokes.push(dots.length === 1 ? dots[0] : H.hullChain(...dots));
   }
-  if (!shapes.length) throw new BuildError('Text ergibt keine Geometrie');
-  let g2 = shapes.length === 1 ? shapes[0] : B.union(...shapes);
-  // Minimal aufdicken: Striche, die sich nur in einem Punkt berühren, würden
-  // nach dem Extrudieren nicht-manifolde Kanten erzeugen.
-  g2 = X.offset({ delta: 0.04, corners: 'round', segments: 8 }, g2);
-  if (center) g2 = T.translate([-(minX + maxX) / 2, -(minY + maxY) / 2, 0], g2);
-  return E.extrudeLinear({ height: h }, g2);
+  if (!strokes.length) throw new BuildError('Text ergibt keine Geometrie');
+  let g = strokes.length === 1 ? strokes[0] : B.union(...strokes);
+  if (center) g = T.translate([-(minX + maxX) / 2, -(minY + maxY) / 2, 0], g);
+  return g;
 }
 
 function polysOf(g: Geom): number[][][] {
