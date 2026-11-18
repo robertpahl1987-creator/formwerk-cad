@@ -98,10 +98,14 @@ export function FreeMode() {
     const p = structuredClone(p0);
     const b = worldBox(p);
     let top: number | null = null;
+    let below: FreePart | null = null;
     for (const x of parts) {
       if (x.id === p.id || x.hole) continue;
       const o = worldBox(x);
-      if (o.max[0] > b.min[0] && o.min[0] < b.max[0] && o.max[1] > b.min[1] && o.min[1] < b.max[1]) top = Math.max(top ?? -Infinity, o.max[2]);
+      if (o.max[0] > b.min[0] && o.min[0] < b.max[0] && o.max[1] > b.min[1] && o.min[1] < b.max[1] && o.max[2] > (top ?? -Infinity)) {
+        top = o.max[2];
+        below = x;
+      }
     }
     if (top === null) {
       p.pos[2] = round(p.pos[2] - b.min[2]);
@@ -110,7 +114,9 @@ export function FreeMode() {
       p.pos[2] = round(p.pos[2] + (top + 0.2 - b.max[2]));
       dispatch({ type: 'toast', kind: 'ok', text: 'Als Gravur in die Oberfläche gesetzt' });
     } else {
-      p.pos[2] = round(p.pos[2] + (top - 0.2 - b.min[2]));
+      // gleiche Farbe: 0,2 mm eintauchen, damit es sicher verschmilzt; andere Farbe: genau aufsetzen
+      const sink = below && (below.slot || 1) !== (p.slot || 1) ? 0 : 0.2;
+      p.pos[2] = round(p.pos[2] + (top - sink - b.min[2]));
       dispatch({ type: 'toast', kind: 'ok', text: 'Auf das Teil darunter gesetzt' });
     }
     replace(p);

@@ -100,18 +100,15 @@ check('foto negativform', pm, { ...defaultValues(pm), mode: 1 });
   const platte = mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } });
   check('frei Platte + Text erhaben + Gravur + Löcher (2 Farben)', freeToModel([
     platte,
-    mk('Text', { pos: [0, 6, 4.7], slot: 2, e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } }),
+    mk('Text', { pos: [0, 6, 4.8], slot: 2, e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } }),
     mk('Text', { hole: true, pos: [0, -10, 3.6], e: { text: 'Robert', hoehe: 6, dicke: 1, strich: 0 } }),
     mk('Schraubloch', { pos: [-30, 0, 2], e: { d: 4, k: 8, L: 4 } }),
     mk('Magnetloch', { pos: [30, 0, 1.6] }),
   ])!, {});
-  // DIAG
-  const P0 = () => mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } });
-  const T2 = (z: number, slot: number) => mk('Text', { pos: [0, 6, z], slot, e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } });
-  check('diag 2farb text eingetaucht', freeToModel([P0(), T2(4.7, 2)])!, {});
-  check('diag 2farb text aufliegend', freeToModel([P0(), T2(4.8, 2)])!, {});
-  check('diag 2farb + magnet', freeToModel([P0(), T2(4.8, 2), mk('Magnetloch', { pos: [30, 0, 1.6] })])!, {});
-  check('diag 1farb alles', freeToModel([P0(), T2(4.7, 1), mk('Text', { hole: true, pos: [0, -10, 3.6], e: { text: 'Robert', hoehe: 6, dicke: 1, strich: 0 } }), mk('Schraubloch', { pos: [-30, 0, 2], e: { d: 4, k: 8, L: 4 } }), mk('Magnetloch', { pos: [30, 0, 1.6] })])!, {});
+  check('frei Platte + Text eingeschmolzen (1 Farbe)', freeToModel([
+    mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } }),
+    mk('Text', { pos: [0, 6, 4.6], e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } }),
+  ])!, {});
   check('frei Scharnier an zwei Platten', freeToModel([
     mk('Scharnier', { pos: [0, 0, 4] }),
     mk('Quader', { size: [40, 20, 2.4], pos: [0, -(4 + 0.4 + 15) - 9, 1.2] }),
