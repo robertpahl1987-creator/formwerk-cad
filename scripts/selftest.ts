@@ -98,10 +98,10 @@ check('foto negativform', pm, { ...defaultValues(pm), mode: 1 });
     check(`frei ${pr.label}`, freeToModel([p])!, {});
   }
   const platte = mk('Quader', { size: [70, 40, 4], pos: [0, 0, 2], e: { r: 4 } });
-  check('frei Platte + Text erhaben + Gravur + Löcher (2 Farben)', freeToModel([
+  check('frei Platte + Einstrich-Text + Gravur + Löcher (1 Farbe)', freeToModel([
     platte,
-    mk('Text', { pos: [0, 6, 4.8], slot: 2, e: { text: 'Formwerk', hoehe: 8, dicke: 1.6, strich: 0 } }),
-    mk('Text', { hole: true, pos: [0, -10, 3.6], e: { text: 'Robert', hoehe: 6, dicke: 1, strich: 0 } }),
+    mk('Text', { pos: [0, 6, 4.7], e: { text: 'Formwerk', font: 'einstrich', hoehe: 8, dicke: 1.6, strich: 0 } }),
+    mk('Text', { hole: true, pos: [0, -10, 3.6], e: { text: 'Robert', font: 'einstrich', hoehe: 6, dicke: 1, strich: 0 } }),
     mk('Schraubloch', { pos: [-30, 0, 2], e: { d: 4, k: 8, L: 4 } }),
     mk('Magnetloch', { pos: [30, 0, 1.6] }),
   ])!, {});
