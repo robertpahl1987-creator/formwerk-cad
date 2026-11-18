@@ -367,7 +367,9 @@ const HOLLOW_DIRS: [number, number, number][] = (() => {
  * Zu dünne Bereiche bleiben automatisch massiv.
  */
 export function hollowGeom(g: Geom, o: HollowOptions): { geom: Geom; hollowed: boolean } {
-  const t = o.wall / 0.8; // Ausgleich der Richtungs-Abtastung (cos 35° ≈ 0,82)
+  // Ausgleich der Richtungs-Abtastung (cos 35° ≈ 0,82). Der krumme Zusatz verhindert, dass
+  // Hohlraumflächen exakt auf anderen Modellflächen liegen (das erzeugt sonst Risse im Netz).
+  const t = o.wall / 0.8 + 0.00731;
   let inner = g;
   for (const [x, y, z] of HOLLOW_DIRS) inner = B.intersect(inner, T.translate([x * t, y * t, z * t], g));
   if (!polysOf(inner).length) return { geom: g, hollowed: false };
@@ -380,9 +382,9 @@ export function hollowGeom(g: Geom, o: HollowOptions): { geom: Geom; hollowed: b
     const across = along === 0 ? 1 : 0;
     const c0 = bb.min[across],
       c1 = bb.max[across];
-    const hw = (c1 - c0) / 2,
-      cc = (c0 + c1) / 2;
-    const apex = bb.max[2] + 0.01;
+    const hw = (c1 - c0) / 2 + 0.0071,
+      cc = (c0 + c1) / 2 + 0.0029;
+    const apex = bb.max[2] + 0.0137;
     const z0 = bb.min[2] - 1;
     const pts: [number, number][] = [
       [cc - hw - 1, z0],
