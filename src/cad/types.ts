@@ -91,6 +91,11 @@ export interface ModelDef {
   templateId?: string;
   /** Die Beschreibung, aus der das Modell entstanden ist (nachträglich bearbeitbar). */
   prompt?: string;
+  /**
+   * Nachträgliche Änderungen im Druckbett-Koordinatensystem (nach dem Ablegen):
+   * z. B. Dübellöcher und Steckzapfen aus der Baugruppe.
+   */
+  mods?: { sub: CadNode[]; add: CadNode[] };
 }
 
 export interface Orientation {

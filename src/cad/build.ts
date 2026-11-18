@@ -491,6 +491,14 @@ export function buildParts(
     parts = parts.map((p) => ({ ...p, geom: T.translate(t, p.geom) }));
     const height = bb.max[2] - bb.min[2];
 
+    // Baugruppen-Verbindungen (im abgelegten Koordinatensystem): Löcher abziehen, Zapfen anfügen
+    if (model.mods && (model.mods.sub.length || model.mods.add.length)) {
+      const sub = unionAll(children(model.mods.sub, ctx));
+      const add = unionAll(children(model.mods.add, ctx));
+      if (sub) parts = parts.map((p) => ({ ...p, geom: B.subtract(p.geom, sub) }));
+      if (add) parts[0] = { ...parts[0], geom: B.union(parts[0].geom, add) };
+    }
+
     // Automatischer Hohlraum (nur Grundkörper = erstes Teil; Beschriftungen/Einlagen bleiben massiv)
     let hollowNote: string | undefined;
     if (hollow?.enabled && parts.length) {

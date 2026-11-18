@@ -10,6 +10,7 @@ import { defaultValues } from '../src/cad/validate';
 import type { ModelDef, Value } from '../src/cad/types';
 import { analyzeMesh, meshFromPolygons, suppressSupportedOverhangs } from '../src/mesh/mesh';
 import { photoModel } from '../src/photo/photoModel';
+import { pinsModel, planJoints, DEFAULT_ASM_JOINTS, type AsmItem } from '../src/cad/assembly';
 import { freeToModel, newPart, PRESETS, type FreePart } from '../src/cad/free';
 
 let fails = 0;
@@ -179,6 +180,41 @@ check('foto negativform', pm, { ...defaultValues(pm), mode: 1 });
     mk('Sechskant', { hole: true, pos: [0, 0, 5] }),
     mk('Kugelgelenk', { pos: [40, 0, 15] }),
   ])!, {});
+}
+
+// ---------------------------------------------------------------- Baugruppe
+for (const type of ['duebel', 'steck'] as const) {
+  const cube = (x: number, y: number, z: number): ModelDef => ({ name: `Quader ${x}×${y}×${z}`, params: [], root: [{ type: 'cube', size: [x, y, z] }], source: 'custom' });
+  const polys = (m: ModelDef) => buildParts(m, {}, { tol: 0.2, fase: true }, { rx: 0, ry: 0 }).parts.flatMap((p) => p.polys);
+  const box = (ps: number[][][]) => {
+    const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+    for (const q of ps) for (const v of q) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], v[k]); mx[k] = Math.max(mx[k], v[k]); }
+    return { mn, mx };
+  };
+  const A = cube(80, 50, 12), B = cube(80, 50, 12), C = cube(80, 50, 10), D = cube(50, 12, 40);
+  const ba = box(polys(A)), bd = box(polys(D));
+  const W = ba.mx[0] - ba.mn[0];
+  const items: AsmItem[] = [
+    { id: 1, name: 'A', model: A, values: {}, pos: [0, 0, 0], rot: [0, 0, 0] },
+    { id: 2, name: 'B', model: B, values: {}, pos: [W, 0, 0], rot: [0, 0, 0] },
+    { id: 3, name: 'C (oben)', model: C, values: {}, pos: [0, 0, 12], rot: [0, 0, 0] },
+    // stehende Wand hinten an B, um Z gedreht
+    { id: 4, name: 'D (Wand, gedreht)', model: D, values: {}, pos: [W + (ba.mn[0] + ba.mx[0]) / 2 - (bd.mn[1] + bd.mx[1]) / 2, 0, 12], rot: [0, 0, 90] },
+  ];
+  const geo = items.map((it) => ({ id: it.id, polys: polys(it.model) }));
+  const res = planJoints(items, geo, { ...DEFAULT_ASM_JOINTS, type }, 0.2);
+  checks++;
+  const total = res.contacts.reduce((a, c) => a + c.joints, 0);
+  const ok = res.contacts.length >= 2 && total >= 3;
+  if (!ok) fails++;
+  console.log(`${ok ? '✓' : '✗'} Baugruppe (${type}): ${res.contacts.length} Berührungen, ${total} Verbinder, ${res.pins} Dübel ${res.warnings.join(' | ')}`);
+  for (const c of res.contacts) console.log(`   ${items.find((i) => i.id === c.a)!.name} ↔ ${items.find((i) => i.id === c.b)!.name}: Achse ${'XYZ'[c.axis]}, ${c.joints}`);
+  for (const it of items) {
+    const mods = res.mods.get(it.id)!;
+    check(`Baugruppe ${type}: ${it.name} mit ${mods.sub.length} Löchern, ${mods.add.length} Zapfen`, { ...it.model, mods }, {});
+    // Volumen muss sich durch Löcher verringern
+  }
+  if (res.pins) check(`Baugruppe ${type}: Dübelplatte`, pinsModel(res.pins, 6, 8), {});
 }
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);

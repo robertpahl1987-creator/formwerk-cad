@@ -6,6 +6,33 @@ import type { BuildResult } from './pipeline';
 import { DEFAULT_SPLIT, type SplitOptions } from '../cad/split';
 import { DEFAULT_HOLLOW, type HollowOptions } from '../cad/build';
 import { PROFILES, type PrintProfile } from '../mesh/mesh';
+import { DEFAULT_ASM_JOINTS, type AsmItem, type AsmJointOptions } from '../cad/assembly';
+
+/** Baugruppe aus mehreren Platten */
+export interface AsmState {
+  items: AsmItem[];
+  /** 'off' = nur aktuelles Teil, 'assembled' = zusammengebaut, 'exploded' = auseinandergezogen */
+  view: 'off' | 'assembled' | 'exploded';
+  /** Teil, das gerade im Editor bearbeitet wird */
+  editing: number | null;
+  next: number;
+  joints: AsmJointOptions;
+  /** Dübelstifte, die zusätzlich gedruckt werden müssen */
+  pins: { count: number; d: number; depth: number } | null;
+  report: string[] | null;
+}
+const ASM_KEY = 'formwerk-cad:baugruppe';
+function loadAsm(): AsmState {
+  const empty: AsmState = { items: [], view: 'off', editing: null, next: 1, joints: DEFAULT_ASM_JOINTS, pins: null, report: null };
+  try {
+    const raw = localStorage.getItem(ASM_KEY);
+    if (!raw) return empty;
+    const a = JSON.parse(raw) as Partial<AsmState>;
+    return { ...empty, ...a, editing: null, joints: { ...DEFAULT_ASM_JOINTS, ...(a.joints ?? {}) } };
+  } catch {
+    return empty;
+  }
+}
 
 export type Mode = 'text' | 'photo' | 'library' | 'free';
 /** Die drei Arbeitsschritte im Seitenmenü */
@@ -56,6 +83,7 @@ export interface State {
   showCode: boolean;
   history: { model: ModelDef; values: Record<string, Value> }[];
   modelVersion: number; // erhöht sich bei neuem Modell → Kamera neu ausrichten
+  asm: AsmState;
 }
 
 export const DEFAULT_PALETTE: FilamentSlot[] = [
@@ -131,7 +159,15 @@ export type Action =
   | { type: 'view'; patch: Partial<ViewOpts> }
   | { type: 'showSettings'; on: boolean }
   | { type: 'showCode'; on: boolean }
-  | { type: 'undo' };
+  | { type: 'undo' }
+  | { type: 'asmAdd'; item: Omit<AsmItem, 'id'> }
+  | { type: 'asmUpdate'; id: number; patch: Partial<AsmItem> }
+  | { type: 'asmRemove'; id: number }
+  | { type: 'asmClear' }
+  | { type: 'asmView'; view: AsmState['view'] }
+  | { type: 'asmEdit'; id: number | null }
+  | { type: 'asmJoints'; patch: Partial<AsmJointOptions> }
+  | { type: 'asmApply'; mods: Record<number, AsmItem['model']['mods']>; pins: AsmState['pins']; report: string[] };
 
 function reducer(s: State, a: Action): State {
   switch (a.type) {
@@ -151,6 +187,7 @@ function reducer(s: State, a: Action): State {
         step: 'adjust',
         history,
         modelVersion: s.modelVersion + 1,
+        asm: { ...s.asm, editing: null },
       };
     }
     case 'freeModel': {
@@ -166,6 +203,7 @@ function reducer(s: State, a: Action): State {
               view: { ...s.view, plate: -1 },
               history: s.model ? [...s.history.slice(-19), { model: s.model, values: s.values }] : s.history,
               modelVersion: s.modelVersion + 1,
+              asm: { ...s.asm, editing: null },
             }
           : {}),
       };
@@ -175,6 +213,7 @@ function reducer(s: State, a: Action): State {
         ...s,
         model: null,
         values: {},
+        asm: { ...s.asm, editing: null },
         build: null,
         buildError: null,
         building: false,
@@ -214,7 +253,53 @@ function reducer(s: State, a: Action): State {
     case 'undo': {
       const last = s.history[s.history.length - 1];
       if (!last) return s;
-      return { ...s, model: last.model, values: last.values, history: s.history.slice(0, -1), modelVersion: s.modelVersion + 1 };
+      return { ...s, model: last.model, values: last.values, history: s.history.slice(0, -1), modelVersion: s.modelVersion + 1, asm: { ...s.asm, editing: null } };
+    }
+    case 'asmAdd': {
+      const id = s.asm.next;
+      return { ...s, asm: { ...s.asm, items: [...s.asm.items, { ...a.item, id }], next: id + 1, view: s.asm.view === 'off' ? 'assembled' : s.asm.view } };
+    }
+    case 'asmUpdate': {
+      const moved = !!(a.patch.pos || a.patch.rot);
+      const hasMods = s.asm.items.some((it) => it.model.mods);
+      return {
+        ...s,
+        asm: {
+          ...s.asm,
+          items: s.asm.items.map((it) => (it.id === a.id ? { ...it, ...a.patch } : it)),
+          report: moved && hasMods ? ['⚠ Lage geändert – bitte „Alle Platten passend bauen“ erneut drücken, damit die Verbinder wieder stimmen.'] : s.asm.report,
+        },
+      };
+    }
+    case 'asmRemove': {
+      const items = s.asm.items.filter((it) => it.id !== a.id);
+      return { ...s, asm: { ...s.asm, items, editing: s.asm.editing === a.id ? null : s.asm.editing, view: items.length ? s.asm.view : 'off' } };
+    }
+    case 'asmClear':
+      return { ...s, asm: { ...s.asm, items: [], view: 'off', editing: null, pins: null, report: null } };
+    case 'asmView':
+      return { ...s, asm: { ...s.asm, view: a.view } };
+    case 'asmEdit': {
+      if (a.id === null) return { ...s, asm: { ...s.asm, editing: null } };
+      const it = s.asm.items.find((x) => x.id === a.id);
+      if (!it) return s;
+      return {
+        ...s,
+        model: it.model,
+        values: it.values,
+        orientation: { rx: 0, ry: 0 },
+        buildError: null,
+        history: s.model ? [...s.history.slice(-19), { model: s.model, values: s.values }] : s.history,
+        modelVersion: s.modelVersion + 1,
+        asm: { ...s.asm, editing: a.id, view: 'off' },
+      };
+    }
+    case 'asmJoints':
+      return { ...s, asm: { ...s.asm, joints: { ...s.asm.joints, ...a.patch } } };
+    case 'asmApply': {
+      const items = s.asm.items.map((it) => (it.id in a.mods ? { ...it, model: { ...it.model, mods: a.mods[it.id] } } : it));
+      const ed = items.find((it) => it.id === s.asm.editing);
+      return { ...s, ...(ed ? { model: ed.model } : {}), asm: { ...s.asm, items, pins: a.pins, report: a.report } };
     }
   }
 }
@@ -244,7 +329,23 @@ export function StoreProvider({ children, initialModel = null }: { children: Rea
     showCode: false,
     history: [],
     modelVersion: 1,
+    asm: loadAsm(),
   }));
+  useEffect(() => {
+    try {
+      const { items, next, joints, pins, report } = state.asm;
+      localStorage.setItem(ASM_KEY, JSON.stringify({ items, next, joints, pins, report }));
+    } catch {
+      /* zu groß / nicht verfügbar */
+    }
+  }, [state.asm]);
+  // Teil der Baugruppe wird bearbeitet → Änderungen zurückschreiben
+  useEffect(() => {
+    const id = state.asm.editing;
+    if (id === null || !state.model) return;
+    const it = state.asm.items.find((x) => x.id === id);
+    if (it && (it.model !== state.model || it.values !== state.values)) dispatch({ type: 'asmUpdate', id, patch: { model: state.model, values: state.values } });
+  }, [state.model, state.values, state.asm.editing, state.asm.items]);
   useEffect(() => {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(state.settings));
