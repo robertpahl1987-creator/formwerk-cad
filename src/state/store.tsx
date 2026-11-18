@@ -106,6 +106,8 @@ export type Action =
   | { type: 'setModel'; model: ModelDef; values?: Record<string, Value> }
   /** Frei bauen: Modell ersetzen, ohne Kamera neu auszurichten und ohne Verlaufseintrag pro Regler-Bewegung. */
   | { type: 'freeModel'; model: ModelDef }
+  /** Frei bauen: leeres Feld → keine Vorschau, kein Export */
+  | { type: 'clearModel' }
   | { type: 'param'; key: string; value: Value }
   | { type: 'resetParams' }
   | { type: 'orientation'; o: Orientation }
@@ -157,6 +159,8 @@ function reducer(s: State, a: Action): State {
           : {}),
       };
     }
+    case 'clearModel':
+      return { ...s, model: null, values: {}, build: null, buildError: null, building: false };
     case 'param':
       return { ...s, values: { ...s.values, [a.key]: a.value } };
     case 'resetParams':

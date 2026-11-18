@@ -49,6 +49,9 @@ export function FreeMode() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const active = state.mode === 'free';
+  /** Zeigt die Vorschau gerade ein frei gebautes Modell? (nur dann darf „leer“ die Vorschau leeren) */
+  const freeShown = useRef(false);
+  freeShown.current = state.model?.templateId === 'frei';
   const parts = data.parts;
   const part = parts.find((p) => p.id === sel) ?? null;
 
@@ -63,6 +66,7 @@ export function FreeMode() {
     const t = setTimeout(() => {
       const m = freeToModel(data.parts);
       if (m) dispatch({ type: 'freeModel', model: m });
+      else if (freeShown.current) dispatch({ type: 'clearModel' });
     }, 150);
     return () => clearTimeout(t);
   }, [data, active, dispatch]);
@@ -165,6 +169,7 @@ export function FreeMode() {
     setConfirmClear(false);
     commit({ parts: [], next: 1 });
     setSel(null);
+    dispatch({ type: 'toast', kind: 'info', text: 'Feld geleert – mit ↶ Rückgängig holst du alles zurück' });
   };
   const saveProject = async () => {
     try {
@@ -232,9 +237,12 @@ export function FreeMode() {
             </button>
           ))}
         </div>
-        <div className="grid grid-cols-3 gap-1.5 mt-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-3">
           <Button onClick={undo} className="h-9 text-[12.5px]">
             ↶ Rückgängig
+          </Button>
+          <Button onClick={clearAll} variant={confirmClear ? 'danger' : 'ghost'} className="h-9 text-[12.5px]" disabled={!parts.length}>
+            {confirmClear ? '⚠ Sicher? Tippen' : '🗑 Feld leeren'}
           </Button>
           <Button onClick={saveProject} className="h-9 text-[12.5px]" disabled={!parts.length}>
             💾 Speichern
@@ -244,11 +252,6 @@ export function FreeMode() {
           </Button>
         </div>
         <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => (loadProject(e.target.files?.[0]), (e.target.value = ''))} />
-        {parts.length > 0 && (
-          <button onClick={clearAll} className="mt-2 text-[12px] text-slate-500 hover:text-red-300 underline">
-            {confirmClear ? 'Wirklich alles löschen? Nochmal tippen' : 'Alles löschen und neu anfangen'}
-          </button>
-        )}
       </div>
 
       {part && <PartEditor key={part.id} part={part} edit={edit} onDone={() => (lastKey.current = '')} palette={palette} />}
