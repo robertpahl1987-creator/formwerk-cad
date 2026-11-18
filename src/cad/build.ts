@@ -126,7 +126,9 @@ function internalThreadGeom(d: number, p: number, h: number, iso: boolean, left:
   const inner: number[][][] = [];
   for (let j = 0; j <= rowsIn; j++) {
     const z = fl + ((h - fl) * j) / rowsIn;
-    inner.push(ring((th) => rin(th, z), z));
+    // winziger Versatz (±3 µm): verhindert, dass benachbarte Flächen exakt in einer Ebene liegen –
+    // die CSG-Bibliothek würde sie sonst zusammenfassen und dabei Kanten verlieren
+    inner.push(ring((th) => rin(th, z) + (j > 0 && j < rowsIn ? 0.003 * Math.sin(th * 7.3 + j * 2.1) : 0), z));
   }
   const polys: number[][][] = [];
   const nx = (i: number) => (i + 1) % N;
