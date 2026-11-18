@@ -193,7 +193,15 @@ export function repairTJunctions(m: Mesh, maxPass = 4): Mesh {
     const badSet = new Set(bad);
     const out: number[] = [];
     let changed = false;
+    // Schutz: Reparatur darf das Netz nicht explodieren lassen (viele fast kollineare Punkte)
+    const limit = Math.max(3_000_000, tri.length * 6);
+    const posLen0 = pos.length;
+    let aborted = false;
     for (let t = 0; t < tri.length; t += 3) {
+      if (out.length > limit || pos.length > limit) {
+        aborted = true;
+        break;
+      }
       if (!badSet.has(t)) {
         out.push(tri[t], tri[t + 1], tri[t + 2]);
         continue;
@@ -228,6 +236,10 @@ export function repairTJunctions(m: Mesh, maxPass = 4): Mesh {
         );
         for (let k = 0; k < ring.length; k++) out.push(ring[k], ring[(k + 1) % ring.length], c);
       }
+    }
+    if (aborted) {
+      pos.length = posLen0;
+      break;
     }
     tri = out;
     if (!changed) break;

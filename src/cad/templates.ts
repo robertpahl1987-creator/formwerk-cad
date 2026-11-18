@@ -667,7 +667,7 @@ export const TEMPLATES: Template[] = [
           type: 'if',
           cond: 'nut',
           then: [
-            T([`(${s}) * 1.2 + 8`, 0, 0], diff({ type: 'cylinder', d: `(${s}) * 1.1547`, h: 'M*0.8', fn: 6 }, T([0, 0, -1], { type: 'thread', d: 'M + 2*tol', pitch, h: 'M*0.8 + 2', iso: true }))),
+            T([`(${s}) * 1.2 + 8`, 0, 0], diff({ type: 'cylinder', d: `(${s}) * 1.1547`, h: 'M*0.8', fn: 6 }, T([0, 0, -0.93], { type: 'thread', d: 'M + 2*tol', pitch, h: 'M*0.8 + 1.87', iso: true }))),
           ],
         },
       ];
