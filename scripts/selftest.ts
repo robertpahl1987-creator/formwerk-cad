@@ -124,6 +124,10 @@ check('foto negativform', pm, { ...defaultValues(pm), mode: 1 });
     check('diag 1f auf (4.8)', freeToModel([P0(), TX(6, 4.8, 1), G(), S(), M()])!, {});
     check('diag 2f auf ohne G', freeToModel([P0(), TX(6, 4.8, 2), S(), M()])!, {});
     check('diag 2f auf nur M', freeToModel([P0(), TX(6, 4.8, 2), M()])!, {});
+    check('diag P+M nochmal', freeToModel([P0(), M()])!, {});
+    check('diag 2f Würfel+M', freeToModel([P0(), mk('Quader', { pos: [0, 60, 5], slot: 2 }), M()])!, {});
+    check('diag 2f Würfel ohne Loch', freeToModel([P0(), mk('Quader', { pos: [0, 60, 5], slot: 2 })])!, {});
+    check('diag 2f Würfel+M eckig', freeToModel([P0(0), mk('Quader', { pos: [0, 60, 5], slot: 2 }), M()])!, {});
   }
   check('frei Scharnier an zwei Platten', freeToModel([
     mk('Scharnier', { pos: [0, 0, 4] }),
