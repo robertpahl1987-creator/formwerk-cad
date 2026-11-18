@@ -130,14 +130,15 @@ function axisCylinder(axis: number, s0: number, s1: number, cu: number, cv: numb
  * Gibt Segmente (+ ggf. Dübelstifte) zurück.
  */
 export function splitParts(
-  parts: { slot: number; name: string; geom: Geom }[],
+  partsIn: { slot: number; name: string; geom: Geom }[],
   bb: { min: number[]; max: number[] },
   o: SplitOptions,
   bed: { size: number; height: number },
   tol: number,
 ): { pieces: PieceGeom[]; report: SplitReport } {
+  let parts = partsIn;
   const size = [0, 1, 2].map((i) => bb.max[i] - bb.min[i]);
-  const usable = [bed.size - 8, bed.size - 8, bed.height - 4];
+  const usable = [bed.size - 3, bed.size - 3, bed.height - 2];
   const counts = [0, 1, 2].map((i) => {
     const manual = Math.round(o.cuts[i]);
     if (manual > 0) return Math.min(12, manual);
@@ -148,6 +149,114 @@ export function splitParts(
 
   const BIG = 1e4;
   const bounds = (i: number, k: number): [number, number] => [k === 0 ? -BIG : planes[i][k - 1], k === counts[i] - 1 ? BIG : planes[i][k]];
+  const r = o.pinD / 2;
+  const clearance = r + tol + o.minWall;
+
+  // Dünnwandige Modelle (Setzkasten, Gehäuse): wo im Schnitt kein Platz für Zapfen/Dübel ist,
+  // werden kleine Verbindungsblöcke in die Innenecken gesetzt (Boden/Wand), die die Verbinder aufnehmen.
+  let bosses = 0;
+  if (o.joint !== 'kleben' && counts.some((c) => c > 1)) {
+    const allPolys0 = polysOf(parts.length === 1 ? parts[0].geom : B.union(...parts.map((p) => p.geom)));
+    const add: Geom[] = [];
+    for (let axis = 0; axis < 3; axis++) {
+      const u = (axis + 1) % 3,
+        v = (axis + 2) % 3;
+      for (const pv of planes[axis]) {
+        const L = o.depth + 1.5;
+        const secs = [sliceSegments(allPolys0, axis, pv), sliceSegments(allPolys0, axis, pv - L + 0.3), sliceSegments(allPolys0, axis, pv + L - 0.3)];
+        if (!secs[0].length) continue;
+        for (let cu = 0; cu < counts[u]; cu++)
+          for (let cv = 0; cv < counts[v]; cv++) {
+            const [u0, u1] = bounds(u, cu),
+              [v0, v1] = bounds(v, cv);
+            const lo = [Math.max(u0, bb.min[u]), Math.max(v0, bb.min[v])];
+            const hi = [Math.min(u1, bb.max[u]), Math.min(v1, bb.max[v])];
+            // gibt es schon genug Material für einen normalen Verbinder?
+            const n = 28;
+            let ok = false;
+            for (let a = 0; a <= n && !ok; a++)
+              for (let b = 0; b <= n && !ok; b++) {
+                const x = lo[0] + ((hi[0] - lo[0]) * a) / n,
+                  y = lo[1] + ((hi[1] - lo[1]) * b) / n;
+                if (x - lo[0] < clearance || hi[0] - x < clearance || y - lo[1] < clearance || hi[1] - y < clearance) continue;
+                if (secs.every((sg) => inside(sg, x, y)) && Math.min(...secs.map((sg) => distToSegs(sg, x, y))) >= clearance) ok = true;
+              }
+            if (ok) continue;
+            // Innenecken suchen: Quadrat liegt im Modellumriss und hat an ≥ 2 Seiten Material
+            const h = clearance + 0.6;
+            const m = 48;
+            const cand: { x: number; y: number; s: number }[] = [];
+            const ratio = (sg: number[][], x: number, y: number) => {
+              let adj = 0,
+                tot = 0,
+                inn = 0,
+                itot = 0;
+              for (let i = 0; i < 12; i++) {
+                const t = -h + ((i + 0.5) * 2 * h) / 12,
+                  e = h + 0.4;
+                for (const [px, py] of [
+                  [x + t, y - e],
+                  [x + t, y + e],
+                  [x - e, y + t],
+                  [x + e, y + t],
+                ]) {
+                  tot++;
+                  if (inside(sg, px, py)) adj++;
+                }
+              }
+              for (let i = 0; i < 5; i++)
+                for (let j = 0; j < 5; j++) {
+                  itot++;
+                  if (inside(sg, x - h + ((i + 0.5) * 2 * h) / 5, y - h + ((j + 0.5) * 2 * h) / 5)) inn++;
+                }
+              return { adj: adj / tot, inn: inn / itot };
+            };
+            for (let a = 0; a <= m; a++)
+              for (let b = 0; b <= m; b++) {
+                const x = lo[0] + h + 0.01 + ((hi[0] - lo[0] - 2 * h - 0.02) * a) / m,
+                  y = lo[1] + h + 0.01 + ((hi[1] - lo[1] - 2 * h - 0.02) * b) / m;
+                if (hi[0] - lo[0] < 2 * h || hi[1] - lo[1] < 2 * h) continue;
+                const rs = secs.map((sg) => ratio(sg, x, y));
+                if (rs.every((q) => q.adj >= 0.4 && q.inn <= 0.55)) cand.push({ x, y, s: rs[0].adj - rs[0].inn * 0.2 });
+              }
+            if (!cand.length) continue;
+            const span = Math.max(hi[0] - lo[0], hi[1] - lo[1]);
+            const want = o.perFace > 0 ? o.perFace : Math.max(2, Math.min(6, Math.round(span / 70)));
+            cand.sort((p, q) => q.s - p.s);
+            const chosen = [cand[0]];
+            while (chosen.length < want) {
+              let best: (typeof cand)[number] | null = null,
+                bd = -1;
+              for (const p of cand) {
+                const dmin = Math.min(...chosen.map((q) => Math.hypot(p.x - q.x, p.y - q.y)));
+                if (dmin > bd || (Math.abs(dmin - bd) < 1e-6 && best && p.s > best.s)) {
+                  bd = dmin;
+                  best = p;
+                }
+              }
+              if (!best || bd < 4 * h) break;
+              chosen.push(best);
+            }
+            for (const p of chosen) {
+              const size = [0, 0, 0],
+                c = [0, 0, 0];
+              size[axis] = 2 * L;
+              size[u] = 2 * h;
+              size[v] = 2 * h;
+              c[axis] = pv;
+              c[u] = p.x;
+              c[v] = p.y;
+              add.push(P.cuboid({ size, center: c }));
+              bosses++;
+            }
+          }
+      }
+    }
+    if (add.length) {
+      parts = parts.map((p, i) => (i === 0 ? { ...p, geom: B.union(p.geom, ...add) } : p));
+      warnings.push(`${bosses} Verbindungsblöcke in Innenecken ergänzt – die Wände sind zu dünn für Zapfen/Dübel.`);
+    }
+  }
 
   // Zellen
   const cells: PieceGeom[] = [];
@@ -167,13 +276,11 @@ export function splitParts(
         cells.push({ label: '', cell: [ix, iy, iz], parts: ps, kind: 'segment' });
       }
 
-  const r = o.pinD / 2;
   const pins: PieceGeom[] = [];
   let faces = 0,
     joints = 0;
   if (o.joint !== 'kleben' && cells.length > 1) {
     const allPolys = polysOf(parts.length === 1 ? parts[0].geom : B.union(...parts.map((p) => p.geom)));
-    const clearance = r + tol + o.minWall;
     for (let axis = 0; axis < 3; axis++) {
       planes[axis].forEach((pv, k) => {
         const s0 = sliceSegments(allPolys, axis, pv);
