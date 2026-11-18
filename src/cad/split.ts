@@ -112,8 +112,8 @@ function axisCylinder(axis: number, s0: number, s1: number, cu: number, cv: numb
   let g: Geom;
   if (chamfer > 0 && h > chamfer * 2) {
     const body = P.cylinder({ radius: r, height: h - chamfer, segments: seg, center: [0, 0, (h - chamfer) / 2] });
-    const tip = P.cylinderElliptic({ height: chamfer + 0.01, startRadius: [r, r], endRadius: [Math.max(r - chamfer, 0.3), Math.max(r - chamfer, 0.3)], segments: seg, center: [0, 0, h - chamfer / 2 - 0.005] });
-    g = B.union(body, tip);
+    const tip = P.cylinder({ radius: Math.max(r - chamfer, 0.3), height: h, segments: seg, center: [0, 0, h / 2] });
+    g = jscad.hulls.hull(body, tip);
   } else g = P.cylinder({ radius: r, height: h, segments: seg, center: [0, 0, h / 2] });
   // lokale Z-Achse → Zielachse
   if (axis === 0) g = T.rotateY(Math.PI / 2, g); // Z → +X
@@ -155,6 +155,7 @@ export function splitParts(
   // Dünnwandige Modelle (Setzkasten, Gehäuse): wo im Schnitt kein Platz für Zapfen/Dübel ist,
   // werden kleine Verbindungsblöcke in die Innenecken gesetzt (Boden/Wand), die die Verbinder aufnehmen.
   let bosses = 0;
+  const bossAt: { axis: number; pv: number; x: number; y: number }[] = [];
   if (o.joint !== 'kleben' && counts.some((c) => c > 1)) {
     const allPolys0 = polysOf(parts.length === 1 ? parts[0].geom : B.union(...parts.map((p) => p.geom)));
     const add: Geom[] = [];
@@ -184,7 +185,6 @@ export function splitParts(
             if (ok) continue;
             // Innenecken suchen: Quadrat liegt im Modellumriss und hat an ≥ 2 Seiten Material
             const h = clearance + 0.6;
-            const m = 48;
             const cand: { x: number; y: number; s: number }[] = [];
             const ratio = (sg: number[][], x: number, y: number) => {
               let adj = 0,
@@ -211,14 +211,29 @@ export function splitParts(
                 }
               return { adj: adj / tot, inn: inn / itot };
             };
-            for (let a = 0; a <= m; a++)
-              for (let b = 0; b <= m; b++) {
-                const x = lo[0] + h + 0.01 + ((hi[0] - lo[0] - 2 * h - 0.02) * a) / m,
-                  y = lo[1] + h + 0.01 + ((hi[1] - lo[1] - 2 * h - 0.02) * b) / m;
-                if (hi[0] - lo[0] < 2 * h || hi[1] - lo[1] < 2 * h) continue;
-                const rs = secs.map((sg) => ratio(sg, x, y));
-                if (rs.every((q) => q.adj >= 0.4 && q.inn <= 0.55)) cand.push({ x, y, s: rs[0].adj - rs[0].inn * 0.2 });
-              }
+            // Kandidaten: Quadrat diagonal an jede Ecke des Querschnitts gelegt (0,3 mm überlappend)
+            const seen = new Set<string>();
+            const off = h - 0.3;
+            for (const sgm of secs[0])
+              for (const [px, py] of [
+                [sgm[0], sgm[1]],
+                [sgm[2], sgm[3]],
+              ])
+                for (const [dx, dy] of [
+                  [1, 1],
+                  [1, -1],
+                  [-1, 1],
+                  [-1, -1],
+                ]) {
+                  const x = px + dx * off,
+                    y = py + dy * off;
+                  if (x - h < lo[0] - 1e-6 || x + h > hi[0] + 1e-6 || y - h < lo[1] - 1e-6 || y + h > hi[1] + 1e-6) continue;
+                  const key = `${Math.round(x * 10)},${Math.round(y * 10)}`;
+                  if (seen.has(key)) continue;
+                  seen.add(key);
+                  const rs = secs.map((sg) => ratio(sg, x, y));
+                  if (rs.every((q) => q.adj >= 0.4 && q.inn <= 0.55)) cand.push({ x, y, s: rs[0].adj - rs[0].inn * 0.2 });
+                }
             if (!cand.length) continue;
             const span = Math.max(hi[0] - lo[0], hi[1] - lo[1]);
             const want = o.perFace > 0 ? o.perFace : Math.max(2, Math.min(6, Math.round(span / 70)));
@@ -247,6 +262,7 @@ export function splitParts(
               c[u] = p.x;
               c[v] = p.y;
               add.push(P.cuboid({ size, center: c }));
+              bossAt.push({ axis, pv, x: p.x, y: p.y });
               bosses++;
             }
           }
@@ -317,8 +333,16 @@ export function splitParts(
               const d = Math.min(distToSegs(s0, x, y), distToSegs(sA, x, y), distToSegs(sB, x, y));
               if (d >= clearance) cand.push({ x, y, d });
             }
+          // Mitten der Verbindungsblöcke sind immer gute Kandidaten (Raster trifft sie evtl. nicht)
+          for (const bz of bossAt) {
+            if (bz.axis !== axis || Math.abs(bz.pv - pv) > 1e-6 || bz.x < lo[0] || bz.x > hi[0] || bz.y < lo[1] || bz.y > hi[1]) continue;
+            if (!inside(s0, bz.x, bz.y) || !inside(sA, bz.x, bz.y) || !inside(sB, bz.x, bz.y)) continue;
+            const d = Math.min(distToSegs(s0, bz.x, bz.y), distToSegs(sA, bz.x, bz.y), distToSegs(sB, bz.x, bz.y));
+            if (d >= clearance - 0.05) cand.push({ x: bz.x, y: bz.y, d: d + 100 });
+          }
           const area = (areaHits / ((n + 1) * (n + 1))) * (hi[0] - lo[0]) * (hi[1] - lo[1]);
-          const want = o.perFace > 0 ? o.perFace : area < 300 ? 1 : area < 2500 ? 2 : area < 8000 ? 3 : 4;
+          const nBoss = cand.filter((c) => c.d >= 100).length;
+          const want = Math.max(nBoss, o.perFace > 0 ? o.perFace : area < 300 ? 1 : area < 2500 ? 2 : area < 8000 ? 3 : 4);
           if (!cand.length) {
             warnings.push(`Schnitt ${'XYZ'[axis]} = ${pv.toFixed(1)} mm: zu wenig Material für Ø ${o.pinD} mm – bitte kleben oder kleineren Durchmesser wählen.`);
             continue;
@@ -367,10 +391,10 @@ export function splitParts(
               // Stift mit 0,5-mm-Fasen an beiden Enden, stehend auf dem Bett (z = 0 … len)
               const seg = Math.max(24, Math.ceil((2 * Math.PI * r) / 0.5 / 4) * 4);
               const c = 0.5;
-              const pinGeom = B.union(
-                P.cylinderElliptic({ height: c + 0.01, startRadius: [r - c, r - c], endRadius: [r, r], segments: seg, center: [0, 0, (c + 0.01) / 2] }),
+              // konvexe Hülle → garantiert wasserdicht
+              const pinGeom = jscad.hulls.hull(
+                P.cylinder({ radius: r - c, height: len, segments: seg, center: [0, 0, len / 2] }),
                 P.cylinder({ radius: r, height: len - 2 * c, segments: seg, center: [0, 0, len / 2] }),
-                P.cylinderElliptic({ height: c + 0.01, startRadius: [r, r], endRadius: [r - c, r - c], segments: seg, center: [0, 0, len - (c + 0.01) / 2] }),
               );
               pins.push({ label: `Dübel ${pins.length + 1}`, cell: [-1, -1, -1], parts: [{ slot: parts[0].slot, name: 'Dübel', geom: pinGeom }], kind: 'pin' });
             }
