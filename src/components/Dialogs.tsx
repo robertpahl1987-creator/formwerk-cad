@@ -109,6 +109,7 @@ export function SettingsDialog() {
         </section>
       )}
       <CloudSettings />
+      <p className="text-[11px] text-slate-500">App-Stand: {new Date(__BUILD__).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</p>
       <section className="space-y-3 pt-2 border-t border-[#21262d]">
         <h3 className="text-[11px] uppercase tracking-wider text-slate-500 pt-2">Drucker</h3>
         <ToleranceCalibration />

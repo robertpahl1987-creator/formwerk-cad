@@ -478,6 +478,55 @@ function BottomSheet({ children }: { children: ReactNode }) {
 }
 
 /** Web-Inhalte aktualisieren sich automatisch; eine neue APK wird hier angeboten. */
+/** Prüft beim Start, beim Zurückkehren in die App und alle 10 min, ob eine neuere Web-Version online ist. */
+function WebUpdateBanner() {
+  const [fresh, setFresh] = useState(false);
+  useEffect(() => {
+    let stop = false;
+    const check = async () => {
+      try {
+        const r = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const v = (await r.json()) as { build?: string };
+        if (!stop && v.build && v.build !== __BUILD__) setFresh(true);
+      } catch {
+        /* offline */
+      }
+    };
+    void check();
+    const iv = setInterval(check, 10 * 60 * 1000);
+    const vis = () => document.visibilityState === 'visible' && void check();
+    document.addEventListener('visibilitychange', vis);
+    return () => {
+      stop = true;
+      clearInterval(iv);
+      document.removeEventListener('visibilitychange', vis);
+    };
+  }, []);
+  if (!fresh) return null;
+  return (
+    <div className="fixed left-3 right-3 bottom-4 lg:left-auto lg:w-96 z-[58] rounded-xl border border-[#00ae42] bg-[#0d1117]/95 backdrop-blur p-3 flex items-center gap-3 shadow-xl">
+      <div className="flex-1 text-[13px] text-slate-200">
+        <b>Neue Version da</b> – jetzt laden, um die neuesten Funktionen und Korrekturen zu bekommen.
+      </div>
+      <button
+        onClick={async () => {
+          try {
+            const regs = await navigator.serviceWorker?.getRegistrations();
+            await Promise.all((regs ?? []).map((r) => r.update()));
+          } catch {
+            /* egal */
+          }
+          location.reload();
+        }}
+        className="h-9 px-3 rounded-lg bg-[#00ae42] text-white text-[13px] font-medium shrink-0"
+      >
+        Neu laden
+      </button>
+    </div>
+  );
+}
+
 function UpdateBanner() {
   const [build, setBuild] = useState<number | null>(null);
   const [hidden, setHidden] = useState(false);
@@ -699,6 +748,7 @@ export function App() {
       <CodeDialog />
       <Busy />
       <UpdateBanner />
+      <WebUpdateBanner />
       <ContextMenu />
       <Toast />
     </div>

@@ -1,11 +1,21 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+
+// Build-Stempel: in der App sichtbar und als version.json für die automatische Update-Prüfung
+const BUILD = new Date().toISOString();
+const versionFile = (): Plugin => ({
+  name: 'formwerk-version',
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: BUILD }) });
+  },
+});
 
 // base './' → läuft unter jedem Pfad (GitHub Pages, eigener Server, lokal)
 export default defineConfig({
   base: './',
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), versionFile()],
+  define: { __BUILD__: JSON.stringify(BUILD) },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 2000,
