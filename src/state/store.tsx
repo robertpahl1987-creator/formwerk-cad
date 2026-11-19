@@ -55,6 +55,8 @@ export interface Settings {
   hollow: HollowOptions;
   /** Variable Schichthöhe (adaptiv) */
   adaptive?: boolean;
+  /** Mausohren-Durchmesser (0 = aus) */
+  ears?: number;
 }
 
 export interface ViewOpts {

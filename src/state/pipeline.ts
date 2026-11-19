@@ -1,6 +1,7 @@
 import { buildExtras, buildParts, type HollowOptions } from '../cad/build';
 import { rotV } from '../cad/assembly';
 import { getImported } from '../mesh/importMesh';
+import { earDiscs, earPoints } from '../mesh/ears';
 import type { ModelImport, PartRole } from '../cad/types';
 import type { SplitOptions, SplitReport } from '../cad/split';
 import type { ColorZone, FilamentSlot, Globals, ModelDef, Orientation, Value } from '../cad/types';
@@ -87,6 +88,8 @@ export interface PipelineSettings {
   bedHeight: number;
   split: SplitOptions;
   hollow?: HollowOptions;
+  /** Mausohren an spitzen Ecken (Ø in mm), 0 = aus */
+  ears?: number;
 }
 
 export function slotColor(palette: FilamentSlot[], slot: number): string {
@@ -205,6 +208,11 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
       ...im.map((i) => mk(i.x.slot, `Import: ${i.x.name}`, moved ? translateMesh(i.mesh, d) : i.mesh)),
     ];
     out.placement = { ...out.placement, t: [t[0] + d[0], t[1] + d[1], t[2] + d[2]] };
+  }
+  // Mausohren an spitzen Ecken der ersten Schicht
+  if (s.ears && s.ears > 0 && !out.pieces && parts.length) {
+    const pts = earPoints(mergeMeshes(parts.map((p) => p.mesh)));
+    if (pts.length) parts.push(mk(parts[0].slot, `Mausohren (${pts.length})`, earDiscs(pts, s.ears, Math.max(0.2, s.layer * 2))));
   }
   // Slicer-Hilfskörper (Modifier, Stütz-Blocker/-Erzwinger) in gleicher Lage dazulegen
   const extraParts: PartResult[] = [];

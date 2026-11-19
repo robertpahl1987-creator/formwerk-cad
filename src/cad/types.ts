@@ -47,6 +47,27 @@ export type CadNode =
   /** Horizontales Loch mit 45°-Spitze nach oben (überhangfrei druckbar), immer zentriert. */
   | { type: 'teardrop'; r?: Expr; d?: Expr; h: Expr; axis?: 'x' | 'y' | 'z' }
   /** Außengewinde (Achse Z, von z=0 bis h). d = Außendurchmesser, iso = metrisches 60°-Profil, sonst druckoptimiert 45°. Als Loch: d + 2*tol */
+  /**
+   * Rotationskörper als direktes Netz (Vase, Griff mit Rändel …): Radius über Höhe (r0 unten, r1 oben, bulge = Bauch),
+   * sides = Ecken (0 = rund), waves/amp/twist = Wellen, pattern = Oberflächenmuster, wall > 0 = hohl mit Boden floor.
+   */
+  | {
+      type: 'radial';
+      h: Expr;
+      r0: Expr;
+      r1?: Expr;
+      bulge?: Expr;
+      sides?: Expr;
+      waves?: Expr;
+      amp?: Expr;
+      twist?: Expr;
+      pattern?: 'none' | 'raendel' | 'rillen' | 'wellen' | 'waben';
+      depth?: Expr;
+      count?: Expr;
+      pitch?: Expr;
+      wall?: Expr;
+      floor?: Expr;
+    }
   | {
       type: 'thread';
       d: Expr;

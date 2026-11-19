@@ -17,7 +17,12 @@ export interface ExportPart {
   role?: 'modifier' | 'blocker' | 'enforcer';
   infill?: number;
   walls?: number;
+  /** Bemalung je Dreieck (wie Bambu/Orca-Malwerkzeug): Farbe = Filament-Nr., Stützen 1 = erzwingen, 2 = blockieren */
+  paintColor?: Uint8Array;
+  paintSupport?: Uint8Array;
 }
+/** Bambu/Orca-Kodierung eines ganzen (nicht unterteilten) Dreiecks */
+const paintCode = (state: number) => (state <= 0 ? '' : state < 3 ? (state << 2).toString(16).toUpperCase() : `${(state - 3).toString(16).toUpperCase()}C`);
 const SUBTYPE = { modifier: 'modifier_part', blocker: 'support_blocker', enforcer: 'support_enforcer' } as const;
 
 export function stlBinary(meshes: Mesh[], header = 'Formwerk CAD'): Uint8Array {
@@ -56,11 +61,15 @@ const f = (n: number) => {
   return Object.is(r, -0) ? '0' : String(r);
 };
 
-function meshXml(m: Mesh): string {
+function meshXml(m: Mesh, paint?: { color?: Uint8Array; support?: Uint8Array }): string {
   const out: string[] = ['<mesh><vertices>'];
   for (let i = 0; i < m.pos.length; i += 3) out.push(`<vertex x="${f(m.pos[i])}" y="${f(m.pos[i + 1])}" z="${f(m.pos[i + 2])}"/>`);
   out.push('</vertices><triangles>');
-  for (let t = 0; t < m.tri.length; t += 3) out.push(`<triangle v1="${m.tri[t]}" v2="${m.tri[t + 1]}" v3="${m.tri[t + 2]}"/>`);
+  for (let t = 0; t < m.tri.length; t += 3) {
+    const pc = paint?.color?.[t / 3] ? ` paint_color="${paintCode(paint.color[t / 3])}"` : '';
+    const ps = paint?.support?.[t / 3] ? ` paint_supports="${paintCode(paint.support[t / 3])}"` : '';
+    out.push(`<triangle v1="${m.tri[t]}" v2="${m.tri[t + 1]}" v3="${m.tri[t + 2]}"${pc}${ps}/>`);
+  }
   out.push('</triangles></mesh>');
   return out.join('');
 }
@@ -77,6 +86,8 @@ export interface ThreeMfOptions {
   pauses?: { top: number; label: string }[];
   /** Höhenbereiche (variable Schichthöhe, Füllung, Wände) für Objekt 1 */
   ranges?: { from: number; to: number; layer?: number; infill?: number; walls?: number }[];
+  /** Vasenmodus (Spirale, nur Außenwand) */
+  vase?: boolean;
 }
 
 /** Ein druckbares Objekt (ggf. aus mehreren Farbteilen), Koordinaten relativ zur Bettmitte. */
@@ -131,7 +142,7 @@ export async function threeMf(objects: ExportObject[], opt: ThreeMfOptions): Pro
     const partIds: number[] = [];
     for (const p of obj.parts) {
       partIds.push(id);
-      res.push(`<object id="${id}" type="model" name="${xmlEsc(p.name)}" pid="1" pindex="${Math.max(0, slots.indexOf(p.slot))}">${meshXml(p.mesh)}</object>`);
+      res.push(`<object id="${id}" type="model" name="${xmlEsc(p.name)}" pid="1" pindex="${Math.max(0, slots.indexOf(p.slot))}">${meshXml(p.mesh, { color: p.paintColor, support: p.paintSupport })}</object>`);
       id++;
     }
     let objId: number;
@@ -143,7 +154,7 @@ export async function threeMf(objects: ExportObject[], opt: ThreeMfOptions): Pro
     cfg.push(`  <object id="${objId}">
     <metadata key="name" value="${xmlEsc(obj.name)}"/>
     <metadata key="extruder" value="${obj.parts[0]?.slot ?? 1}"/>
-${profileMeta(opt.profile, '    ', opt.layer)}
+${profileMeta(opt.profile, '    ', opt.layer)}${opt.vase ? `\n    <metadata key="spiral_mode" value="1"/>` : ''}
 ${obj.parts
   .map(
     (p, i) => `    <part id="${partIds[i]}" subtype="${p.role ? SUBTYPE[p.role] : 'normal_part'}">

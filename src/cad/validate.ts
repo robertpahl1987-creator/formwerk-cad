@@ -8,7 +8,7 @@ import type { CadNode, ModelDef, ParamDef, Shape2D } from './types';
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RESERVED = new Set(['tol', 'fase', 'PI', 'true', 'false', 'for', 'if', 'else', 'module', 'function']);
 const NODE_TYPES = new Set([
-  'cube', 'roundedCube', 'cylinder', 'sphere', 'extrude', 'revolve', 'teardrop', 'import', 'thread',
+  'cube', 'roundedCube', 'cylinder', 'sphere', 'extrude', 'revolve', 'teardrop', 'import', 'thread', 'radial',
   'union', 'difference', 'intersection', 'hull', 'translate', 'rotate', 'mirror', 'scale', 'if', 'for',
   'text', 'color',
 ]);
@@ -159,6 +159,10 @@ export function validateModel(raw: unknown, source: ModelDef['source'] = 'ai'): 
       case 'revolve':
         if (n.angle !== undefined) checkExpr(n.angle, `${w}.angle`, scope);
         return checkShape(n.shape, `${w}.shape`, scope);
+      case 'radial':
+        checkExpr(n.h, `${w}.h`, scope);
+        checkExpr(n.r0, `${w}.r0`, scope);
+        return;
       case 'thread':
         checkExpr(n.d, `${w}.d`, scope);
         checkExpr(n.pitch, `${w}.pitch`, scope);

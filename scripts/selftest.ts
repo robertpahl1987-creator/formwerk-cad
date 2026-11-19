@@ -8,7 +8,7 @@ import { DEFAULT_SPLIT, type JointType } from '../src/cad/split';
 import { TEMPLATES } from '../src/cad/templates';
 import { defaultValues } from '../src/cad/validate';
 import type { ModelDef, Value } from '../src/cad/types';
-import { analyzeMesh, meshFromPolygons, rotateMesh, suppressSupportedOverhangs } from '../src/mesh/mesh';
+import { analyzeMesh, meshFromPolygons, mergeMeshes, rotateMesh, suppressSupportedOverhangs } from '../src/mesh/mesh';
 import { photoModel } from '../src/photo/photoModel';
 import { pinsModel, planJoints, DEFAULT_ASM_JOINTS, type AsmItem } from '../src/cad/assembly';
 import { parseMeshBuffer, registerImported, meshToJson, meshFromJson } from '../src/mesh/importMesh';
@@ -17,6 +17,7 @@ import { runPipeline } from '../src/state/pipeline';
 import { DEFAULT_HOLLOW } from '../src/cad/build';
 import { PROFILES } from '../src/mesh/mesh';
 import { optimizePrint } from '../src/mesh/optimize';
+import { earPoints } from '../src/mesh/ears';
 import { adaptiveRanges, mergeRanges, layerCount } from '../src/mesh/adaptive';
 import { layOnFace } from '../src/state/slicerTools';
 import { threeMf } from '../src/mesh/export';
@@ -480,6 +481,22 @@ await (async () => {
   if (!okA) fails++;
   console.log(`${okA ? '✓' : '✗'} Variable Schichthöhe Kugel: ${ar.length} Bereiche, oben ${topL} mm, Mitte ${midL} mm, ${n} Schichten statt 250`);
 })();
+
+// ---------------------------------------------------------------- Etui aus Foto + Mausohren
+{
+  const outer = [[-30, -15], [30, -15], [35, 0], [30, 15], [-30, 15], [-35, 0]] as [number, number][];
+  const pm = photoModel(outer, [], 70, 30, 'Etui-Test');
+  check('Foto → Etui mit Deckel', pm, { ...defaultValues(pm), mode: 2, depth: 12 });
+  const S = { globals: { tol: 0.2, fase: true }, orientation: { rx: 0, ry: 0 }, zones: null, palette: [{ slot: 1, name: 'A', color: '#fff' }], material: 'pla', profile: PROFILES.standard, layer: 0.2, overhangDeg: 45, bedSize: 256, bedHeight: 256, split: { ...DEFAULT_SPLIT, enabled: false } };
+  const plate: ModelDef = { name: 'Platte', params: [], source: 'custom', root: [{ type: 'cube', size: [60, 40, 3] }] };
+  const r = runPipeline(plate, {}, { ...S, ears: 12 });
+  const ears = r.parts.find((p) => p.name.startsWith('Mausohren'));
+  const n = earPoints(mergeMeshes(r.parts.filter((p) => !p.name.startsWith('Mausohren')).map((p) => p.mesh))).length;
+  checks++;
+  const ok = !!ears && ears.stats.manifold && n >= 4;
+  if (!ok) fails++;
+  console.log(`${ok ? '✓' : '✗'} Mausohren an Platte: ${n} Ecken, Teil ${ears?.name ?? 'fehlt'}, wasserdicht ${ears?.stats.manifold}`);
+}
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);
 if (fails) process.exit(1);

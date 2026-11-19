@@ -673,6 +673,151 @@ export const TEMPLATES: Template[] = [
       ];
     })(),
   ),
+  // ------------------------------------------------------------ Vasen-Generator
+  t(
+    'vase',
+    'Vase (Vasenmodus)',
+    '🏺',
+    ['vase', 'vasenmodus', 'blumenvase', 'übertopf', 'stiftebecher', 'lampenschirm vase', 'spiralvase'],
+    'Gedrehte, gewellte oder eckige Vase. Wand 0 = Vasenmodus (der Slicer druckt nur eine Außenwand in einer Spirale – schnell, sehr wenig Material). Mit Wand > 0 wird sie normal hohl gedruckt.',
+    [
+      num('H', 'Höhe', 150, 30, 250, 1, { role: 'height' }),
+      num('Ru', 'Radius unten', 35, 10, 120, 0.5),
+      num('Ro', 'Radius oben', 45, 10, 120, 0.5),
+      num('bauch', 'Bauch', 12, -30, 40, 0.5),
+      { key: 'ecken', label: 'Form', type: 'select', value: 0, options: [{ value: 0, label: 'Rund' }, { value: 3, label: 'Dreieck' }, { value: 4, label: 'Viereck' }, { value: 5, label: 'Fünfeck' }, { value: 6, label: 'Sechseck' }, { value: 8, label: 'Achteck' }] },
+      cnt('wellen', 'Wellen', 8, 0, 40, { role: undefined }),
+      num('amp', 'Wellentiefe', 3, 0, 15, 0.5),
+      num('dreh', 'Verdrehung', 60, -360, 360, 5, { unit: '°' }),
+      { key: 'muster', label: 'Oberfläche', type: 'select', value: 0, options: [{ value: 0, label: 'Glatt' }, { value: 1, label: 'Rillen' }, { value: 2, label: 'Spiralwellen' }, { value: 3, label: 'Waben' }] },
+      num('wall', 'Wand (0 = Vasenmodus)', 0, 0, 4, 0.2, { role: 'wall' }),
+    ],
+    (['none', 'rillen', 'wellen', 'waben'] as const).map(
+      (pat, i): CadNode => ({
+        type: 'if',
+        cond: `muster == ${i}`,
+        then: [{ type: 'radial', h: 'H', r0: 'Ru', r1: 'Ro', bulge: 'bauch', sides: 'ecken', waves: 'wellen', amp: 'amp', twist: 'dreh', pattern: pat, depth: 1.2, count: 'round(2*PI*max(Ru,Ro)/8)', pitch: 10, wall: 'wall', floor: 1.6 }],
+      }),
+    ),
+  ),
+  // ------------------------------------------------------------ Drehknopf mit Rändel
+  t(
+    'drehknopf',
+    'Drehknopf mit Rändel',
+    '🎛️',
+    ['drehknopf', 'knopf', 'rändel', 'raendel', 'griff', 'potiknopf', 'regler', 'muster', 'griffig'],
+    'Griffiger Drehknopf mit Rändel- oder Rillenmuster und D-Wellenaufnahme (z. B. für Potentiometer 6 mm). Muster direkt ins Netz eingearbeitet – keine Stützen nötig.',
+    [
+      num('D', 'Durchmesser', 30, 10, 120, 0.5, { role: 'width' }),
+      num('H', 'Höhe', 16, 6, 80, 0.5, { role: 'height' }),
+      { key: 'muster', label: 'Muster', type: 'select', value: 1, options: [{ value: 1, label: 'Rändel (Rauten)' }, { value: 2, label: 'Längsrillen' }, { value: 3, label: 'Waben' }] },
+      num('tiefe', 'Mustertiefe', 0.8, 0.3, 2, 0.1),
+      num('welle', 'Wellen-Ø (D-Form)', 6, 3, 12, 0.5, { role: 'hole' }),
+    ],
+    [
+      diff(
+        uni(
+          ...(['raendel', 'rillen', 'waben'] as const).map(
+            (pat, i): CadNode => ({ type: 'if', cond: `muster == ${i + 1}`, then: [{ type: 'radial', h: 'H - 1.5', r0: 'D/2', r1: 'D/2 - 0.5', pattern: pat, depth: 'tiefe', count: 'round(PI*D/3.2)', pitch: 6 }] }),
+          ),
+          // Deckel mit Fase
+          T([0, 0, 'H - 1.51'], { type: 'cylinder', r1: 'D/2 - 0.5 - tiefe', r2: 'D/2 - 0.5 - tiefe - 1.2', h: 1.51 }),
+        ),
+        T([0, 0, -1], { type: 'intersection', children: [{ type: 'cylinder', d: 'welle + 2*tol', h: 'H - 2' }, T(['-welle/2 - 1 + 0.5', 0, 0], { type: 'cube', size: ['welle + 2', 'welle + 2', 'H'], center: false } as CadNode)] }),
+      ),
+    ],
+  ),
+  // ------------------------------------------------------------ Print-in-place
+  t(
+    'flexikette',
+    'Flexi-Kette (print-in-place)',
+    '⛓️',
+    ['kette', 'flexi', 'print in place', 'print-in-place', 'gelenkkette', 'armband', 'gelenk', 'beweglich'],
+    'Bewegliche Kette in einem Stück gedruckt: jedes Glied dreht sich auf einem Stift mit Haltekappe im nächsten Glied. Ohne Stützen drucken, danach Glieder vorsichtig lösen.',
+    [
+      cnt('N', 'Glieder', 8, 2, 30, { role: 'count' }),
+      num('L', 'Gliedlänge', 24, 16, 60, 0.5, { role: 'length' }),
+      num('W', 'Breite', 12, 8, 30, 0.5, { role: 'width' }),
+      num('T', 'Dicke', 6, 4, 12, 0.5, { role: 'height' }),
+      num('g', 'Spiel', 0.4, 0.25, 0.8, 0.05, { hint: 'Abstand zwischen beweglichen Teilen – bei P1S 0,3–0,4 mm' }),
+    ],
+    [
+      {
+        type: 'for',
+        var: 'i',
+        from: 0,
+        to: 'N - 1',
+        children: [
+          T(['i*(L - W)', '-W/2', 0], {
+            type: 'union',
+            children: [
+              // Mittelteil, volle Höhe
+              T(['W', 0, 0], { type: 'cube', size: ['L - 2*W', 'W', 'T'], center: false } as CadNode),
+              // linke, obere Lasche mit Loch (sitzt auf dem Stift des vorigen Glieds)
+              diff(T(['g', 0, 'T/2 + g/2'], { type: 'cube', size: ['W - g', 'W', 'T/2 - g/2'], center: false } as CadNode), T(['W/2', 'W/2', -1], { type: 'cylinder', r: 'W*0.22 + g', h: 'T + 2' })),
+              // rechte, untere Lasche mit Stift + Haltekappe
+              T(['L - W', 0, 0], { type: 'cube', size: ['W - g', 'W', 'T/2 - g/2'], center: false } as CadNode),
+              {
+                type: 'if',
+                cond: 'i < N - 1',
+                then: [
+                  T(['L - W/2', 'W/2', 0], { type: 'cylinder', r: 'W*0.22', h: 'T + g + 0.01' }),
+                  T(['L - W/2', 'W/2', 'T + g'], { type: 'cylinder', r1: 'W*0.22', r2: 'W*0.22 + 0.9', h: 0.9 }),
+                  T(['L - W/2', 'W/2', 'T + g + 0.89'], { type: 'cylinder', r: 'W*0.22 + 0.9', h: 0.6 }),
+                ],
+              },
+            ],
+          }),
+        ],
+      },
+    ],
+  ),
+  t(
+    'spinner',
+    'Dreh-Anhänger (print-in-place)',
+    '🌀',
+    ['spinner', 'dreh', 'anhänger', 'schlüsselanhänger', 'fidget', 'drehteil', 'lager'],
+    'Schlüsselanhänger mit drehbarer Scheibe – in einem Stück gedruckt: ein umlaufender 45°-Keil hält die Scheibe im Ring, ohne Stützen. Optional Text auf der Scheibe.',
+    [
+      num('R', 'Außenradius', 22, 14, 50, 0.5, { role: 'width' }),
+      num('T', 'Dicke', 7, 5, 14, 0.5, { role: 'height' }),
+      num('g', 'Spiel', 0.45, 0.3, 0.8, 0.05),
+      flag('mitText', 'Text auf der Scheibe', false),
+      { key: 'txt', label: 'Text', type: 'text', value: 'HALLO' },
+    ],
+    (() => {
+      const r1 = 'R - 6';
+      const k = 'min(1.5, T/4)';
+      return [
+        // drehbare Scheibe mit Keil
+        {
+          type: 'revolve',
+          fn: 128,
+          shape: { type: 'polygon', points: [[0, 0], [r1, 0], [r1, `T/2 - ${k}`], [`${r1} + ${k}`, 'T/2'], [r1, `T/2 + ${k}`], [r1, 'T'], [0, 'T']] },
+        },
+        // Ring mit passender Nut (Spiel g)
+        {
+          type: 'revolve',
+          fn: 128,
+          shape: {
+            type: 'polygon',
+            points: [
+              [`${r1} + g`, 0],
+              ['R', 0],
+              ['R', 'T'],
+              [`${r1} + g`, 'T'],
+              [`${r1} + g`, `T/2 + ${k} + g*0.42`],
+              [`${r1} + ${k} + g`, 'T/2'],
+              [`${r1} + g`, `T/2 - ${k} - g*0.42`],
+            ],
+          },
+        },
+        // Öse
+        diff(T(['R + 4', 0, 0], rrect(14, 12, 4, 'T/2')), T(['R + 6', 0, -1], { type: 'cylinder', d: 5, h: 'T' })),
+        { type: 'if', cond: 'mitText', then: [T([0, 0, 'T - 0.01'], { type: 'text', text: '{txt}', size: 'R/3.2', h: 0.8, maxW: '2*(R - 8)' } as CadNode)] },
+      ];
+    })(),
+  ),
 ];
 
 export function getTemplate(id: string): Template | undefined {

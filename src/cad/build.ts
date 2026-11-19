@@ -159,6 +159,89 @@ function internalThreadGeom(d: number, p: number, h: number, iso: boolean, left:
   return G.geom3.fromPoints(polys);
 }
 
+/** Rotationskörper als geschlossenes Netz (außen moduliert, optional hohl mit Boden). */
+function radialGeom(o: {
+  h: number; r0: number; r1: number; bulge: number; sides: number; waves: number; amp: number; twist: number;
+  pattern: string; depth: number; count: number; pitch: number; wall: number; floor: number;
+}): Geom {
+  const rMax = Math.max(o.r0, o.r1) + Math.abs(o.bulge) + Math.abs(o.amp);
+  let N = clamp(Math.round((2 * Math.PI * rMax) / 0.5), 72, 480);
+  const per = o.pattern !== 'none' ? Math.max(1, o.count) : 1;
+  N = Math.ceil(N / (per * 4)) * per * 4; // Muster sauber auf das Raster legen
+  const rowStep = o.pattern === 'none' ? 0.5 : Math.min(0.5, o.pitch / 16);
+  const rows = Math.max(2, Math.ceil(o.h / rowStep));
+  const groove = (x: number) => Math.max(0, 1 - Math.abs((((x % 1) + 1) % 1) - 0.5) * 4); // Dreiecksrille, Breite = halbe Teilung
+  const outR = (th: number, z: number) => {
+    const t = z / o.h;
+    let r = o.r0 + (o.r1 - o.r0) * t + o.bulge * Math.sin(Math.PI * t);
+    if (o.sides >= 3) {
+      const seg = (2 * Math.PI) / o.sides;
+      const tw = (o.twist * Math.PI) / 180;
+      const a = (((th - tw * t) % seg) + seg) % seg;
+      r *= Math.cos(Math.PI / o.sides) / Math.cos(a - Math.PI / o.sides);
+    }
+    if (o.waves > 0 && o.amp) r += o.amp * Math.sin(o.waves * (th - ((o.twist * Math.PI) / 180) * t));
+    const u = (th / (2 * Math.PI)) * o.count;
+    if (o.pattern === 'raendel') r -= o.depth * Math.max(groove(u + z / o.pitch), groove(u - z / o.pitch));
+    else if (o.pattern === 'rillen') r -= o.depth * groove(u);
+    else if (o.pattern === 'wellen') r -= o.depth * (0.5 + 0.5 * Math.sin(2 * Math.PI * (u + z / o.pitch)));
+    else if (o.pattern === 'waben') {
+      // versetzte Mulden (Wabenlook): Reihe für Reihe um eine halbe Teilung verschoben
+      const row = Math.floor(z / (o.pitch * 0.866));
+      const vu = u + (row % 2) * 0.5;
+      const vz = ((z / (o.pitch * 0.866)) % 1) - 0.5;
+      const du = (((vu % 1) + 1) % 1) - 0.5;
+      r -= o.depth * Math.max(0, 1 - Math.hypot(du * 2, vz * 2.2) * 1.15);
+    }
+    // Enden sauber: Muster in den letzten 0,6 mm auslaufen lassen
+    return Math.max(0.5, r);
+  };
+  const hollow = o.wall > 0;
+  const fl = hollow ? clamp(o.floor, 0.4, o.h - 0.5) : 0;
+  const ang = Array.from({ length: N }, (_, i) => (2 * Math.PI * i) / N);
+  const ringAt = (z: number, f: (th: number) => number, j: number, jitter: boolean) =>
+    ang.map((th) => {
+      const r = f(th) + (jitter ? 0.003 * Math.sin(th * 7.3 + j * 2.1) : 0);
+      return [r * Math.cos(th), r * Math.sin(th), z];
+    });
+  const outer: number[][][] = [];
+  for (let j = 0; j <= rows; j++) {
+    const z = (o.h * j) / rows;
+    outer.push(ringAt(z, (th) => outR(th, z), j, j > 0 && j < rows));
+  }
+  const polys: number[][][] = [];
+  const nx = (i: number) => (i + 1) % N;
+  for (let j = 0; j < rows; j++)
+    for (let i = 0; i < N; i++) {
+      const a = outer[j][i], b = outer[j][nx(i)], c = outer[j + 1][nx(i)], d = outer[j + 1][i];
+      polys.push([a, b, c], [a, c, d]);
+    }
+  const bc = [0, 0, 0];
+  for (let i = 0; i < N; i++) polys.push([bc, outer[0][nx(i)], outer[0][i]]);
+  if (!hollow) {
+    const tc = [0, 0, o.h];
+    for (let i = 0; i < N; i++) polys.push([tc, outer[rows][i], outer[rows][nx(i)]]);
+  } else {
+    const innerRows = Math.max(2, Math.ceil((o.h - fl) / 0.5));
+    const inner: number[][][] = [];
+    for (let j = 0; j <= innerRows; j++) {
+      const z = fl + ((o.h - fl) * j) / innerRows;
+      inner.push(ringAt(z, (th) => Math.max(0.3, outR(th, z) - o.wall - (o.pattern !== 'none' ? 0 : 0)), j, j > 0 && j < innerRows));
+    }
+    for (let j = 0; j < innerRows; j++)
+      for (let i = 0; i < N; i++) {
+        const a = inner[j][i], b = inner[j][nx(i)], c = inner[j + 1][nx(i)], d = inner[j + 1][i];
+        polys.push([a, c, b], [a, d, c]);
+      }
+    const top = outer[rows],
+      it = inner[innerRows];
+    for (let i = 0; i < N; i++) polys.push([top[i], top[nx(i)], it[nx(i)]], [top[i], it[nx(i)], it[i]]);
+    const fc = [0, 0, fl];
+    for (let i = 0; i < N; i++) polys.push([fc, inner[0][i], inner[0][nx(i)]]);
+  }
+  return G.geom3.fromPoints(polys);
+}
+
 function segs(r: number, fn?: number): number {
   if (fn && fn >= 3) return Math.max(4, Math.ceil(fn / 4) * 4);
   // In 16er-Stufen: benachbarte Radien (Bohrung + Fase/Senkung) bekommen dieselbe
@@ -304,6 +387,27 @@ function build(n: CadNode, ctx: Ctx): Geom[] {
       const fn = n.fn !== undefined ? num(n.fn, s) : 96;
       if (angle >= 359.999) return [E.extrudeRotate({ segments: Math.max(8, Math.round(fn)) }, g2)];
       return [E.extrudeRotate({ segments: Math.max(8, Math.round(fn)), angle: angle * DEG }, g2)];
+    }
+    case 'radial': {
+      const o = (x: Parameters<typeof num>[0] | undefined, d: number, what: string) => (x === undefined ? d : num(x, s, what));
+      return [
+        radialGeom({
+          h: positive(num(n.h, s, 'radial.h'), 'Höhe'),
+          r0: positive(num(n.r0, s, 'radial.r0'), 'Radius'),
+          r1: o(n.r1, num(n.r0, s, 'radial.r0'), 'radial.r1'),
+          bulge: o(n.bulge, 0, 'radial.bulge'),
+          sides: Math.round(o(n.sides, 0, 'radial.sides')),
+          waves: Math.round(o(n.waves, 0, 'radial.waves')),
+          amp: o(n.amp, 0, 'radial.amp'),
+          twist: o(n.twist, 0, 'radial.twist'),
+          pattern: n.pattern ?? 'none',
+          depth: o(n.depth, 0.6, 'radial.depth'),
+          count: Math.round(o(n.count, 24, 'radial.count')),
+          pitch: o(n.pitch, 6, 'radial.pitch'),
+          wall: o(n.wall, 0, 'radial.wall'),
+          floor: o(n.floor, 1.2, 'radial.floor'),
+        }),
+      ];
     }
     case 'thread': {
       const d = positive(num(n.d, s, 'thread.d'), 'Gewinde-Durchmesser');

@@ -648,7 +648,7 @@ export function ExportPanel() {
         files.push({ name: 'Montageanleitung.txt', data: guide() });
         done(await saveFile(`${base}_${b.plates.length}-platten.zip`, await zipFiles(files)), `${b.plates.length} Platten als 3MF`);
       } else {
-        const blob = await threeMf([{ name: m.name, parts: toExport(b.parts) }], { title: m.name, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile, layer: state.settings.layer, pauses: b.pauses, ranges: rangesFor(state) });
+        const blob = await threeMf([{ name: m.name, parts: toExport(b.parts) }], { title: m.name, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile, layer: state.settings.layer, pauses: b.pauses, ranges: rangesFor(state), vase: m.templateId === 'vase' && Number(state.values.wall ?? 0) === 0 });
         done(await saveFile(`${base}.3mf`, blob), '3MF');
       }
     });
@@ -1135,6 +1135,31 @@ export function LayersPanel() {
         </Button>
       </div>
       <p className="text-[11px] text-slate-500">Wird ins 3MF geschrieben – Bambu Studio und OrcaSlicer übernehmen die Bereiche beim Öffnen (Objekt → Höhenbereich).</p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------- Haftung: Mausohren
+export function AdhesionPanel() {
+  const { state, dispatch } = useStore();
+  const b = state.build;
+  if (!b) return null;
+  const d = state.settings.ears ?? 0;
+  const ears = b.parts.find((p) => p.name.startsWith('Mausohren'));
+  return (
+    <Section title="🐭 Haftung: Mausohren" defaultOpen={d > 0}>
+      <Toggle
+        label="Mausohren an spitzen Ecken"
+        hint="Dünne runde Scheiben (2 Schichten) an Ecken der ersten Schicht – verhindern, dass sich Ecken hochziehen. Nach dem Druck abbrechen."
+        checked={d > 0}
+        onChange={(v) => dispatch({ type: 'settings', patch: { ears: v ? 12 : 0 } })}
+      />
+      {d > 0 && (
+        <>
+          <SliderRow label="Durchmesser" value={d} min={6} max={25} step={1} unit="mm" onChange={(v) => dispatch({ type: 'settings', patch: { ears: v } })} />
+          <p className="text-[12px] text-slate-300">{ears ? `${ears.name.replace(/\D/g, '')} Ecken bekommen ein Mausohr.` : 'Keine spitzen Ecken auf dem Bett gefunden – nichts nötig.'}</p>
+        </>
+      )}
     </Section>
   );
 }

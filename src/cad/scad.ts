@@ -53,6 +53,8 @@ function node(n: CadNode, ind: string): string {
       return `${ind}linear_extrude(height = ${e(n.h)}, center = ${n.center ? 'true' : 'false'}) {\n${shape(n.shape, ind + '  ')}${ind}}\n`;
     case 'revolve':
       return `${ind}rotate_extrude(angle = ${n.angle !== undefined ? e(n.angle) : '360'}${n.fn !== undefined ? `, $fn = ${e(n.fn)}` : ''}) {\n${shape(n.shape, ind + '  ')}${ind}}\n`;
+    case 'radial':
+      return `${ind}// Rotationskörper (Vase/Muster) – in OpenSCAD nur als Grundform: \n${ind}cylinder(h = ${e(n.h)}, r1 = ${e(n.r0)}, r2 = ${e(n.r1 ?? n.r0)});\n`;
     case 'thread':
       return `${ind}fw_thread(${e(n.d)}, ${e(n.pitch)}, ${e(n.h)}, iso = ${n.iso ? 'true' : 'false'}, chamfer = ${n.chamfer ? 'true' : 'false'}, left = ${n.left ? 'true' : 'false'});\n`;
     case 'import':
