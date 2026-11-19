@@ -381,7 +381,13 @@ function build(n: CadNode, ctx: Ctx): Geom[] {
       sv.forEach((x) => {
         if (!Number.isFinite(x) || Math.abs(x) < 1e-6) throw new BuildError(`Skalierungsfaktor darf nicht 0 sein (ist ${x})`);
       });
-      return g ? [T.scale(sv, g)] : [];
+      if (!g) return [];
+      // JSCAD skaliert nur mit positiven Faktoren → Betrag skalieren, negative Achsen spiegeln
+      let out = T.scale(sv.map(Math.abs), g);
+      sv.forEach((x, k) => {
+        if (x < 0) out = T.mirror({ normal: [k === 0 ? 1 : 0, k === 1 ? 1 : 0, k === 2 ? 1 : 0] }, out);
+      });
+      return [out];
     }
     case 'text':
       return [
