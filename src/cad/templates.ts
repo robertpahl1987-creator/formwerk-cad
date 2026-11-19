@@ -736,7 +736,7 @@ export const TEMPLATES: Template[] = [
     'Bewegliche Kette in einem Stück gedruckt: jedes Glied dreht sich auf einem Stift mit Haltekappe im nächsten Glied. Ohne Stützen drucken, danach Glieder vorsichtig lösen.',
     [
       cnt('N', 'Glieder', 8, 2, 30, { role: 'count' }),
-      num('L', 'Gliedlänge', 24, 16, 60, 0.5, { role: 'length' }),
+      num('L', 'Gliedlänge', 30, 18, 60, 0.5, { role: 'length' }),
       num('W', 'Breite', 12, 8, 30, 0.5, { role: 'width' }),
       num('T', 'Dicke', 6, 4, 12, 0.5, { role: 'height' }),
       num('g', 'Spiel', 0.4, 0.25, 0.8, 0.05, { hint: 'Abstand zwischen beweglichen Teilen – bei P1S 0,3–0,4 mm' }),
@@ -748,22 +748,22 @@ export const TEMPLATES: Template[] = [
         from: 0,
         to: 'N - 1',
         children: [
-          T(['i*(L - W)', '-W/2', 0], {
+          T(['i*((max(L, 2*W + 2)) - W)', '-W/2', 0], {
             type: 'union',
             children: [
               // Mittelteil, volle Höhe
-              T(['W', 0, 0], { type: 'cube', size: ['L - 2*W', 'W', 'T'], center: false } as CadNode),
+              T(['W', 0, 0], { type: 'cube', size: ['(max(L, 2*W + 2)) - 2*W', 'W', 'T'], center: false } as CadNode),
               // linke, obere Lasche mit Loch (sitzt auf dem Stift des vorigen Glieds)
               diff(T(['g', 0, 'T/2 + g/2'], { type: 'cube', size: ['W - g', 'W', 'T/2 - g/2'], center: false } as CadNode), T(['W/2', 'W/2', -1], { type: 'cylinder', r: 'W*0.22 + g', h: 'T + 2' })),
               // rechte, untere Lasche mit Stift + Haltekappe
-              T(['L - W', 0, 0], { type: 'cube', size: ['W - g', 'W', 'T/2 - g/2'], center: false } as CadNode),
+              T(['(max(L, 2*W + 2)) - W', 0, 0], { type: 'cube', size: ['W - g', 'W', 'T/2 - g/2'], center: false } as CadNode),
               {
                 type: 'if',
                 cond: 'i < N - 1',
                 then: [
-                  T(['L - W/2', 'W/2', 0], { type: 'cylinder', r: 'W*0.22', h: 'T + g + 0.01' }),
-                  T(['L - W/2', 'W/2', 'T + g'], { type: 'cylinder', r1: 'W*0.22', r2: 'W*0.22 + 0.9', h: 0.9 }),
-                  T(['L - W/2', 'W/2', 'T + g + 0.89'], { type: 'cylinder', r: 'W*0.22 + 0.9', h: 0.6 }),
+                  T(['(max(L, 2*W + 2)) - W/2', 'W/2', 0], { type: 'cylinder', r: 'W*0.22', h: 'T + g + 0.01' }),
+                  T(['(max(L, 2*W + 2)) - W/2', 'W/2', 'T + g'], { type: 'cylinder', r1: 'W*0.22', r2: 'W*0.22 + 0.9', h: 0.9 }),
+                  T(['(max(L, 2*W + 2)) - W/2', 'W/2', 'T + g + 0.89'], { type: 'cylinder', r: 'W*0.22 + 0.9', h: 0.6 }),
                 ],
               },
             ],

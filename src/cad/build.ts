@@ -165,10 +165,10 @@ function radialGeom(o: {
   pattern: string; depth: number; count: number; pitch: number; wall: number; floor: number;
 }): Geom {
   const rMax = Math.max(o.r0, o.r1) + Math.abs(o.bulge) + Math.abs(o.amp);
-  let N = clamp(Math.round((2 * Math.PI * rMax) / 0.5), 72, 480);
+  let N = clamp(Math.round((2 * Math.PI * rMax) / 0.8), 72, 360);
   const per = o.pattern !== 'none' ? Math.max(1, o.count) : 1;
   N = Math.ceil(N / (per * 4)) * per * 4; // Muster sauber auf das Raster legen
-  const rowStep = o.pattern === 'none' ? 0.5 : Math.min(0.5, o.pitch / 16);
+  const rowStep = o.pattern === 'none' ? 1 : Math.min(0.8, o.pitch / 12);
   const rows = Math.max(2, Math.ceil(o.h / rowStep));
   const groove = (x: number) => Math.max(0, 1 - Math.abs((((x % 1) + 1) % 1) - 0.5) * 4); // Dreiecksrille, Breite = halbe Teilung
   const outR = (th: number, z: number) => {
@@ -222,7 +222,7 @@ function radialGeom(o: {
     const tc = [0, 0, o.h];
     for (let i = 0; i < N; i++) polys.push([tc, outer[rows][i], outer[rows][nx(i)]]);
   } else {
-    const innerRows = Math.max(2, Math.ceil((o.h - fl) / 0.5));
+    const innerRows = Math.max(2, Math.ceil((o.h - fl) / rowStep));
     const inner: number[][][] = [];
     for (let j = 0; j <= innerRows; j++) {
       const z = fl + ((o.h - fl) * j) / innerRows;
