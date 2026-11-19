@@ -8,7 +8,7 @@ import { DEFAULT_SPLIT, type JointType } from '../src/cad/split';
 import { TEMPLATES } from '../src/cad/templates';
 import { defaultValues } from '../src/cad/validate';
 import type { ModelDef, Value } from '../src/cad/types';
-import { analyzeMesh, meshFromPolygons, suppressSupportedOverhangs } from '../src/mesh/mesh';
+import { analyzeMesh, meshFromPolygons, rotateMesh, suppressSupportedOverhangs } from '../src/mesh/mesh';
 import { photoModel } from '../src/photo/photoModel';
 import { pinsModel, planJoints, DEFAULT_ASM_JOINTS, type AsmItem } from '../src/cad/assembly';
 import { parseMeshBuffer, registerImported, meshToJson, meshFromJson } from '../src/mesh/importMesh';
