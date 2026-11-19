@@ -216,11 +216,21 @@ function radialGeom(o: {
       const a = outer[j][i], b = outer[j][nx(i)], c = outer[j + 1][nx(i)], d = outer[j + 1][i];
       polys.push([a, b, c], [a, c, d]);
     }
-  const bc = [0, 0, 0];
-  for (let i = 0; i < N; i++) polys.push([bc, outer[0][nx(i)], outer[0][i]]);
+  // Deckel: konvexes Innen-Vieleck + Ring aus gut geformten Dreiecken (lange, dünne Fächer-Dreiecke
+  // vom Mittelpunkt bringen die CSG-Bibliothek bei Mustern aus dem Tritt)
+  const cap = (ring: number[][], z: number, up: boolean) => {
+    const rIn = Math.max(0.2, Math.min(...ring.map((p) => Math.hypot(p[0], p[1]))) * 0.9);
+    const inner = ang.map((th) => [rIn * Math.cos(th), rIn * Math.sin(th), z]);
+    polys.push(up ? inner : [...inner].reverse());
+    for (let i = 0; i < N; i++) {
+      const a = ring[i], b = ring[nx(i)], c = inner[nx(i)], d = inner[i];
+      if (up) polys.push([a, b, c], [a, c, d]);
+      else polys.push([a, c, b], [a, d, c]);
+    }
+  };
+  cap(outer[0], 0, false);
   if (!hollow) {
-    const tc = [0, 0, o.h];
-    for (let i = 0; i < N; i++) polys.push([tc, outer[rows][i], outer[rows][nx(i)]]);
+    cap(outer[rows], o.h, true);
   } else {
     const innerRows = Math.max(2, Math.ceil((o.h - fl) / rowStep));
     const inner: number[][][] = [];
@@ -236,8 +246,7 @@ function radialGeom(o: {
     const top = outer[rows],
       it = inner[innerRows];
     for (let i = 0; i < N; i++) polys.push([top[i], top[nx(i)], it[nx(i)]], [top[i], it[nx(i)], it[i]]);
-    const fc = [0, 0, fl];
-    for (let i = 0; i < N; i++) polys.push([fc, inner[0][i], inner[0][nx(i)]]);
+    cap(inner[0], fl, true);
   }
   return G.geom3.fromPoints(polys);
 }
