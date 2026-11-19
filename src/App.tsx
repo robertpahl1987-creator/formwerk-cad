@@ -1,12 +1,14 @@
 import { Component, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
-import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, OptimizePanel, ParamPanel, PrintCheck, SaveToMyParts, SplitPanel, ToleranceCalibration } from './components/ModelPanels';
+import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, ObjectList, OptimizePanel, ParamPanel, PrintCheck, SaveToMyParts, SplitPanel, ToleranceCalibration } from './components/ModelPanels';
 import { ContextMenu } from './components/ContextMenu';
 import { AssemblyPanel, PlateBar } from './components/AssemblyPanel';
 import { PlateJobPanel, usePacked } from './components/PlateJobPanel';
 import { plateJob, usePlateJob } from './state/plateJob';
 import { printPreview, usePrintLayer } from './state/printPreview';
+import { layOnFace, slicerTools, useSlicerTools } from './state/slicerTools';
+import { SlicerToolbar } from './components/SlicerTools';
 import { asmSettings, assembledParts } from './state/assemblyBuild';
 import { EditPanel } from './components/EditPanel';
 import { freeBus, useFreeSnapshot } from './state/freeBus';
@@ -292,6 +294,7 @@ function PanelContent() {
                   <ToleranceCalibration compact />
                 </div>
               )}
+              <ObjectList />
               <ParamPanel />
               <EditPanel />
             </>
@@ -687,6 +690,7 @@ export function App() {
   }, [asmOn, state.asm.items, state.asm.view, s, importVer]);
   const job = usePlateJob();
   const packed = usePacked();
+  const tools = useSlicerTools();
   const jobDisplay = useMemo(() => {
     if (!job.show || !packed?.plates.length) return null;
     const pl = packed.plates[Math.min(job.plate, packed.plates.length - 1)];
@@ -729,6 +733,14 @@ export function App() {
               overlay={overlay}
               onPick={(id, additive) => freeBus.send({ type: 'select', ids: id === null ? [] : [id], additive })}
               onTransform={(t) => freeBus.send({ type: 'transform', ...t })}
+              tool={tools.tool}
+              onFace={(n) => {
+                const o = layOnFace(n, state.orientation);
+                dispatch({ type: 'orientation', o });
+                slicerTools.set({ tool: null });
+                dispatch({ type: 'toast', kind: 'ok', text: 'Fläche liegt jetzt auf dem Bett' });
+              }}
+              cutPreview={tools.panel === 'cut' ? tools.cut : null}
               onMenu={(id, x, y, at) => {
                 if (id !== null && !freeBus.get().sel.includes(id)) freeBus.send({ type: 'select', ids: [id] });
                 freeBus.openMenu({ x, y, id, at });
@@ -736,6 +748,7 @@ export function App() {
             />
           </ViewerBoundary>
           <ViewToggles />
+          {!jobDisplay && !asmOn && <SlicerToolbar />}
           {state.view.print && <PrintBar />}
         </main>
       </div>

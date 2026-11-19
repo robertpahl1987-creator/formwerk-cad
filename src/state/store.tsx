@@ -170,6 +170,8 @@ export type Action =
   | { type: 'asmRemove'; id: number }
   | { type: 'asmClear' }
   | { type: 'asmNew' }
+  /** Ganzes Modell skalieren/spiegeln (null = zurücksetzen) */
+  | { type: 'xform'; scale: [number, number, number] | null }
   | { type: 'asmView'; view: AsmState['view'] }
   | { type: 'asmEdit'; id: number | null }
   | { type: 'asmJoints'; patch: Partial<AsmJointOptions> }
@@ -202,7 +204,11 @@ function reducer(s: State, a: Action): State {
       const keepMods = !fresh && s.model?.mods && JSON.stringify(s.model.freeParts) === JSON.stringify(a.model.freeParts);
       return {
         ...s,
-        model: keepMods ? { ...a.model, mods: s.model!.mods } : a.model,
+        model: {
+          ...(keepMods ? { ...a.model, mods: s.model!.mods } : a.model),
+          // Skalieren/Spiegeln bleibt beim Weiterbauen erhalten
+          ...(!fresh && s.model?.xform ? { xform: s.model.xform } : {}),
+        },
         values: {},
         buildError: null,
         ...(fresh
@@ -292,6 +298,16 @@ function reducer(s: State, a: Action): State {
           report: hadMods && items.length ? ['⚠ Platte gelöscht – bitte „Alle Platten passend bauen“ erneut drücken, damit keine überflüssigen Löcher bleiben.'] : s.asm.report,
           pins: items.length ? s.asm.pins : null,
         },
+      };
+    }
+    case 'xform': {
+      if (!s.model) return s;
+      const { xform: _old, ...rest } = s.model;
+      void _old;
+      return {
+        ...s,
+        model: a.scale && a.scale.some((v) => v !== 1) ? { ...rest, xform: { scale: a.scale } } : rest,
+        history: [...s.history.slice(-19), { model: s.model, values: s.values }],
       };
     }
     case 'asmNew':

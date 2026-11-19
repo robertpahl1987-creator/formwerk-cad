@@ -11,7 +11,7 @@ import { myParts, useMyParts, type MyPart } from '../state/myParts';
 import { freeBus } from '../state/freeBus';
 import type { FreePart } from '../cad/free';
 import { hashId, registerImported, weldTriangles } from '../mesh/importMesh';
-import { runPipeline } from '../state/pipeline';
+import { printable, runPipeline } from '../state/pipeline';
 import type { PartResult } from '../state/pipeline';
 import { useStore } from '../state/store';
 import { Button, cx, NumberInput, Section, SliderRow, Stat, Toggle } from './ui';
@@ -335,7 +335,7 @@ export function ColorPanel() {
       </div>
       {state.build && state.build.parts.length > 0 && (
         <ul className="text-[12px] text-slate-300 space-y-1">
-          {state.build.parts.map((p, i) => (
+          {state.build.parts.filter((p) => !p.role).map((p, i) => (
             <li key={i} className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-sm" style={{ background: p.color }} />
               {p.name} <span className="text-slate-500">· Slot {p.slot}</span>
@@ -527,7 +527,7 @@ export function PrintCheck() {
   const size = [t.max[0] - t.min[0], t.max[1] - t.min[1], t.max[2] - t.min[2]];
   const overCm2 = t.overhangArea / 100;
   const optimize = () => {
-    const merged = mergeMeshes(b.parts.map((p) => p.mesh));
+    const merged = mergeMeshes(printable(b.parts).map((p) => p.mesh));
     const unrot = rotateMesh(rotateMesh(merged, 0, -state.orientation.ry), -state.orientation.rx, 0);
     const best = bestOrientation(unrot, state.settings.overhangDeg);
     dispatch({ type: 'orientation', o: { rx: best.rx, ry: best.ry } });
@@ -577,7 +577,7 @@ export function PrintCheck() {
 }
 
 // ---------------------------------------------------------------- Export
-const toExport = (ps: PartResult[]): ExportPart[] => ps.map((p) => ({ name: p.name, slot: p.slot, color: p.color, mesh: p.mesh }));
+const toExport = (ps: PartResult[]): ExportPart[] => ps.map((p) => ({ name: p.name, slot: p.slot, color: p.color, mesh: p.mesh, role: p.role, infill: p.infill, walls: p.walls }));
 
 export function ExportPanel() {
   const { state, dispatch } = useStore();
@@ -586,7 +586,7 @@ export function ExportPanel() {
   const m = state.model;
   if (!b || !m) return null;
   const base = slug(m.name);
-  const multi = new Set(b.parts.map((p) => p.slot)).size > 1;
+  const multi = new Set(printable(b.parts).map((p) => p.slot)).size > 1;
   const done = (r: string, what: string) => {
     if (r === 'declined') return;
     dispatch({ type: 'toast', kind: 'ok', text: r === 'zipped' ? `${what} gespeichert (als ZIP verpackt)` : `${what} gespeichert` });
@@ -645,9 +645,9 @@ export function ExportPanel() {
       if (b.pieces) {
         const files = b.pieces.map((p, i) => ({ name: `${base}_${String(i + 1).padStart(2, '0')}_${slug(p.label)}.stl`, data: stlBinary(p.local.map((l) => l.mesh), p.label) }));
         done(await saveFile(`${base}_teile-stl.zip`, await zipFiles([...files, { name: 'Montageanleitung.txt', data: guide() }])), 'STL-Teile');
-      } else done(await saveFile(`${base}.stl`, stlBinary(b.parts.map((p) => p.mesh), m.name)), 'STL');
+      } else done(await saveFile(`${base}.stl`, stlBinary(printable(b.parts).map((p) => p.mesh), m.name)), 'STL');
     });
-  const exportColors = () => run('Farben', async () => done(await saveFile(`${base}_farben.zip`, await stlPerColorZip(toExport(b.parts), base)), 'STL je Farbe'));
+  const exportColors = () => run('Farben', async () => done(await saveFile(`${base}_farben.zip`, await stlPerColorZip(toExport(printable(b.parts)), base)), 'STL je Farbe'));
   const exportScad = () =>
     run('SCAD', async () => {
       let code = toScad(m, state.values, { tol: state.settings.tol, fase: state.settings.fase }, b.placement, state.settings.palette);
@@ -702,7 +702,7 @@ export function OptimizePanel() {
     setBusy(true);
     setTimeout(() => {
       try {
-        const merged = mergeMeshes(b.parts.map((p) => p.mesh));
+        const merged = mergeMeshes(printable(b.parts).map((p) => p.mesh));
         const unrot = rotateMesh(rotateMesh(merged, 0, -state.orientation.ry), -state.orientation.rx, 0);
         const density = MATERIALS.find((x) => x.id === s.material)?.density ?? 1.24;
         const prev = { profile: s.profile, layer: s.layer, orientation: state.orientation };
@@ -872,7 +872,7 @@ export function MyPartsPanel() {
             bedHeight: s.bedHeight,
             split: { ...s.split, enabled: false },
           });
-          const mm = mergeMeshes(r.parts.map((x) => x.mesh));
+          const mm = mergeMeshes(printable(r.parts).map((x) => x.mesh));
           const soup = new Float64Array(mm.tri.length * 3);
           for (let i = 0; i < mm.tri.length; i++) for (let k = 0; k < 3; k++) soup[i * 3 + k] = mm.pos[mm.tri[i] * 3 + k];
           const w = weldTriangles(soup);
@@ -916,5 +916,67 @@ export function MyPartsPanel() {
         ))}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- Objektliste (wie Bambu Studio / OrcaSlicer)
+const ROLE_LABEL = { modifier: 'Modifier', blocker: 'Stütz-Blocker', enforcer: 'Stütz-Erzwinger' } as const;
+export function ObjectList() {
+  const { state, dispatch } = useStore();
+  const b = state.build;
+  const m = state.model;
+  if (!b || !m) return null;
+  const xs = m.xform?.scale;
+  const free = m.templateId === 'frei' ? ((m.freeParts as FreePart[] | undefined) ?? []) : [];
+  const pieces = b.pieces?.filter((p) => p.kind === 'segment').length ?? 0;
+  return (
+    <Section title="📋 Objektliste" defaultOpen={false}>
+      <div className="rounded-lg border border-[#30363d] divide-y divide-[#21262d] text-[12.5px]">
+        <div className="px-2.5 py-2 flex items-center gap-2">
+          <span className="text-slate-100 font-medium flex-1 truncate">{m.name}</span>
+          <span className="text-[11px] text-slate-500">
+            {(state.orientation.rx || state.orientation.ry) && `gedreht X ${state.orientation.rx}° Y ${state.orientation.ry}° · `}
+            {xs && `skaliert ${xs.map((v) => `${v < 0 ? '⇋' : ''}${Math.round(Math.abs(v) * 100)}%`).join('/')} · `}
+            {pieces > 1 && `${pieces} Stücke`}
+          </span>
+        </div>
+        {b.parts.map((p, i) => (
+          <div key={i} className="px-2.5 py-1.5 flex items-center gap-2">
+            <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: p.color, opacity: p.role ? 0.6 : 1 }} />
+            <span className="flex-1 truncate text-slate-200">{p.name}</span>
+            {p.role ? (
+              <span className="text-[10.5px] px-1.5 rounded border border-[#30363d] text-slate-300">
+                {ROLE_LABEL[p.role]}
+                {p.role === 'modifier' && p.infill !== undefined ? ` ${Math.round(p.infill * 100)} %` : ''}
+              </span>
+            ) : (
+              <span className={cx('text-[10.5px]', p.stats.manifold ? 'text-[#3ddc84]' : 'text-amber-300')}>{p.stats.manifold ? '✓' : '⚠'} Slot {p.slot}</span>
+            )}
+          </div>
+        ))}
+      </div>
+      {free.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {free.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => {
+                dispatch({ type: 'mode', mode: 'free' });
+                dispatch({ type: 'step', step: 'create' });
+                freeBus.send({ type: 'select', ids: [p.id] });
+              }}
+              className={cx(
+                'h-7 px-2 rounded-md border text-[11.5px]',
+                p.role === 'modifier' ? 'border-yellow-500/60 text-yellow-200' : p.role === 'blocker' ? 'border-red-400/60 text-red-200' : p.role === 'enforcer' ? 'border-sky-400/60 text-sky-200' : p.hole ? 'border-red-600/60 text-red-300' : 'border-[#30363d] text-slate-300',
+              )}
+            >
+              {p.hole ? '⊖ ' : ''}
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-slate-500">Modifier, Stütz-Blocker und -Erzwinger legst du in „Frei bauen“ an (Teil antippen → Slicer-Teil). Sie landen als solche im 3MF für Bambu Studio und OrcaSlicer.</p>
+    </Section>
   );
 }

@@ -117,6 +117,20 @@ export interface ModelDef {
   freeParts?: unknown[];
   /** Importierte Dateien als eigene Körper (werden im Slicer mit dem Modell verschmolzen) */
   imports?: ModelImport[];
+  /** Skalierung/Spiegelung des ganzen Modells (negativ = gespiegelt), wie „Skalieren“/„Spiegeln“ im Slicer */
+  xform?: { scale: [number, number, number] };
+  /** Slicer-Hilfskörper (Modifier, Stütz-Blocker/-Erzwinger) – werden nicht gedruckt, sondern ins 3MF geschrieben */
+  extras?: ModelExtra[];
+}
+
+export type PartRole = 'modifier' | 'blocker' | 'enforcer';
+export interface ModelExtra {
+  role: PartRole;
+  name: string;
+  node: CadNode;
+  /** nur Modifier: abweichende Füllung (0–1) und Wandanzahl */
+  infill?: number;
+  walls?: number;
 }
 
 export interface ModelImport {

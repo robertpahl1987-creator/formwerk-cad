@@ -29,6 +29,11 @@ interface Props {
   /** Schichthöhe und Füllgrad für die Druckvorschau */
   layer?: number;
   infill?: number;
+  /** Werkzeug wie in Bambu Studio / OrcaSlicer: Fläche aufs Bett legen, Messen */
+  tool?: 'face' | 'measure' | null;
+  onFace?: (normal: [number, number, number]) => void;
+  /** Vorschau der Schnittebene für das Schneiden-Werkzeug */
+  cutPreview?: { axis: 0 | 1 | 2; frac: number } | null;
 }
 
 interface Ctx3 {
@@ -48,6 +53,8 @@ interface Ctx3 {
   plane: THREE.Plane;
   /** Druckvorschau: alles oberhalb der aktuellen Schicht ausblenden */
   layerPlane: THREE.Plane;
+  /** Messen / Schnittebene */
+  tools: THREE.Group;
   raf: number;
   bbox: THREE.Box3 | null;
 }
@@ -214,13 +221,14 @@ function printMaterial(o: { layer: number; infill: number; clip: THREE.Plane[]; 
 
 const fmt = (n: number) => `${(Math.round(n * 10) / 10).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mm`;
 
-export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu, onTransform, layer = 0.2, infill = 0.15 }: Props) {
+export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu, onTransform, layer = 0.2, infill = 0.15, tool = null, onFace, cutPreview = null }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const hud = useRef<HTMLDivElement>(null);
   const ctx = useRef<Ctx3 | null>(null);
   const lastVersion = useRef(-1);
-  const live = useRef({ overlay, onPick, onMenu, onTransform });
-  live.current = { overlay, onPick, onMenu, onTransform };
+  const live = useRef({ overlay, onPick, onMenu, onTransform, tool, onFace });
+  live.current = { overlay, onPick, onMenu, onTransform, tool, onFace };
+  const measurePts = useRef<THREE.Vector3[]>([]);
 
   // Initialisierung
   useEffect(() => {
@@ -257,8 +265,9 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     const selG = new THREE.Group();
     selG.matrixAutoUpdate = false;
     const gizmo = new THREE.Group();
-    scene.add(bed, model, dims, overlayG, selG, gizmo);
-    const c: Ctx3 = { renderer, scene, camera, controls, bed, model, dims, overlay: overlayG, selG, gizmo, pivot: null, plane: new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), layerPlane: new THREE.Plane(new THREE.Vector3(0, 0, -1), 1e6), raf: 0, bbox: null };
+    const toolsG = new THREE.Group();
+    scene.add(bed, model, dims, overlayG, selG, gizmo, toolsG);
+    const c: Ctx3 = { renderer, scene, camera, controls, bed, model, dims, overlay: overlayG, selG, gizmo, pivot: null, plane: new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), layerPlane: new THREE.Plane(new THREE.Vector3(0, 0, -1), 1e6), tools: toolsG, raf: 0, bbox: null };
 
     // ---- Anklicken & Rechtsklick (nur wenn Frei-bauen-Teile vorhanden) ----
     const ray = new THREE.Raycaster();
@@ -454,9 +463,50 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       down = null;
       if (!d0 || longFired || e.button !== 0) return;
       if (Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 5 || performance.now() - d0.t > 600) return;
+      // Werkzeuge: Fläche aufs Bett / Messen → Treffer auf dem Modell
+      const tl = live.current.tool;
+      if (tl) {
+        ray.setFromCamera(ndc(e.clientX, e.clientY), camera);
+        const solids = c.model.children.filter((o) => o.userData.solid);
+        const hitM = ray.intersectObjects(solids, false)[0];
+        if (!hitM || !hitM.face) return;
+        if (tl === 'face') {
+          const n = hitM.face.normal.clone().normalize();
+          live.current.onFace?.([n.x, n.y, n.z]);
+          return;
+        }
+        // Messen: zwei Punkte → Abstand
+        const pts = measurePts.current.length >= 2 ? [] : measurePts.current;
+        pts.push(hitM.point.clone());
+        measurePts.current = pts;
+        drawMeasure();
+        return;
+      }
       if (!live.current.overlay?.parts.length || !live.current.onPick) return;
       const h = hit(e.clientX, e.clientY);
       live.current.onPick(h.id, e.ctrlKey || e.metaKey || e.shiftKey);
+    };
+    const drawMeasure = () => {
+      disposeGroup(c.tools);
+      const pts = measurePts.current;
+      const s = c.bbox ? Math.max(30, c.bbox.getSize(new THREE.Vector3()).length() * 0.7) : 60;
+      for (const p of pts) {
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(s * 0.008, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffd43b, depthTest: false }));
+        dot.position.copy(p);
+        dot.renderOrder = 10;
+        c.tools.add(dot);
+      }
+      if (pts.length === 2) {
+        const [a, b] = pts;
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), new THREE.LineBasicMaterial({ color: 0xffd43b, depthTest: false }));
+        line.renderOrder = 10;
+        const d = b.clone().sub(a);
+        const lab = textSprite(`${fmt(d.length())}  (X ${Math.abs(d.x).toFixed(1).replace('.', ',')} · Y ${Math.abs(d.y).toFixed(1).replace('.', ',')} · Z ${Math.abs(d.z).toFixed(1).replace('.', ',')})`, '#ffd43b');
+        lab.position.copy(a.clone().add(b).multiplyScalar(0.5));
+        lab.scale.multiplyScalar(s / 60);
+        lab.renderOrder = 11;
+        c.tools.add(line, lab);
+      }
     };
     const onCtx = (e: MouseEvent) => {
       if (!live.current.onMenu || !live.current.overlay) return;
@@ -541,6 +591,20 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     for (const part of parts) {
       const { pos: P, tri } = part.mesh;
       const n = tri.length;
+      if (part.role) {
+        // Slicer-Hilfskörper: halbdurchsichtig mit Kanten (Modifier gelb, Blocker rot, Erzwinger blau)
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3));
+        g.setIndex(new THREE.BufferAttribute(tri, 1));
+        g.computeVertexNormals();
+        const col = new THREE.Color(part.color);
+        const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: col, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, clippingPlanes: pclip }));
+        m.renderOrder = 3;
+        const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.9, clippingPlanes: pclip }));
+        e.renderOrder = 3;
+        c.model.add(m, e);
+        continue;
+      }
       const arr = new Float32Array(n * 3);
       const col = new Float32Array(n * 3);
       const base = new THREE.Color(part.color);
@@ -560,7 +624,9 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
       geo.computeVertexNormals();
       if (print) {
-        c.model.add(new THREE.Mesh(geo, printMaterial({ layer, infill, clip: pclip, vertexColors: true })));
+        const front = new THREE.Mesh(geo, printMaterial({ layer, infill, clip: pclip, vertexColors: true }));
+        front.userData.solid = true;
+        c.model.add(front);
         c.model.add(new THREE.Mesh(geo, printMaterial({ layer, infill, clip: pclip, color: base.clone().multiplyScalar(0.9), back: true })));
         continue;
       }
@@ -577,7 +643,9 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
         polygonOffsetFactor: 1,
         polygonOffsetUnits: 1,
       });
-      c.model.add(new THREE.Mesh(geo, mat));
+      const solidMesh = new THREE.Mesh(geo, mat);
+      solidMesh.userData.solid = true;
+      c.model.add(solidMesh);
       if (view.section && !view.xray) {
         // Schnittfläche sichtbar machen: Rückseiten in Signalfarbe
         const cap = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xff922b, side: THREE.BackSide, clippingPlanes: clip }));
@@ -594,7 +662,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
 
     // Druckvorschau: Stützen (vereinfacht) unter Überhängen
     if (print && view.supports !== false) {
-      const cols = supportColumns(parts.map((p) => ({ mesh: p.mesh, flags: p.stats.overhangFlags })));
+      const cols = supportColumns(parts.filter((p) => !p.role).map((p) => ({ mesh: p.mesh, flags: p.stats.overhangFlags })));
       if (cols.length) {
         const geo = new THREE.BoxGeometry(1.9, 1.9, 1);
         const mat = printMaterial({ layer, infill, clip: pclip, color: new THREE.Color(0xd9dde3), opacity: 0.55 });
@@ -637,6 +705,35 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       frame(c, 'iso');
     }
   }, [parts, view, modelVersion, layer, infill]);
+
+  // Messen zurücksetzen, wenn das Werkzeug wechselt oder das Modell sich ändert
+  useEffect(() => {
+    const c = ctx.current;
+    if (!c) return;
+    measurePts.current = [];
+    disposeGroup(c.tools);
+    if (host.current) host.current.style.cursor = tool ? 'crosshair' : '';
+    // Schnittebene anzeigen
+    if (cutPreview && c.bbox) {
+      const b = c.bbox;
+      const size = b.getSize(new THREE.Vector3());
+      const ax = cutPreview.axis;
+      const pos = b.min.getComponent(ax) + size.getComponent(ax) * Math.min(0.97, Math.max(0.03, cutPreview.frac));
+      const w = (ax === 0 ? size.y : size.x) + 20,
+        h = (ax === 2 ? size.y : size.z) + 20;
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: 0xff922b, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
+      const ctr = b.getCenter(new THREE.Vector3());
+      plane.position.copy(ctr);
+      plane.position.setComponent(ax, pos);
+      if (ax === 0) plane.rotation.y = Math.PI / 2;
+      if (ax === 1) plane.rotation.x = Math.PI / 2;
+      plane.renderOrder = 8;
+      const edge = new THREE.LineSegments(new THREE.EdgesGeometry(plane.geometry), new THREE.LineBasicMaterial({ color: 0xff922b }));
+      edge.position.copy(plane.position);
+      edge.rotation.copy(plane.rotation);
+      c.tools.add(plane, edge);
+    }
+  }, [tool, cutPreview, parts]);
 
   // Druckvorschau: Schicht-Regler bewegt nur die Schnittebene (kein Neuaufbau)
   useEffect(

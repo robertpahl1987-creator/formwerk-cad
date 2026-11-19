@@ -17,6 +17,9 @@ import { runPipeline } from '../src/state/pipeline';
 import { DEFAULT_HOLLOW } from '../src/cad/build';
 import { PROFILES } from '../src/mesh/mesh';
 import { optimizePrint } from '../src/mesh/optimize';
+import { layOnFace } from '../src/state/slicerTools';
+import { threeMf } from '../src/mesh/export';
+import JSZip from 'jszip';
 import { supportColumns } from '../src/mesh/supports';
 import { packPlates } from '../src/state/plateJob';
 import { lithoSoup, DEFAULT_LITHO } from '../src/photo/litho';
@@ -379,6 +382,66 @@ for (const arc of [0, 180]) {
   if (!ok) fails++;
   console.log(`${ok ? '✓' : '✗'} Stützen-Vorschau Tisch: ${cols.length} Säulen, alle bis zum Bett ${allToBed}, unter der Säule ${under}`);
 }
+
+// ---------------------------------------------------------------- Slicer-Werkzeuge (Bambu/Orca)
+await (async () => {
+  // Fläche aufs Bett: nach dem Drehen muss die gewählte Normale nach unten zeigen
+  checks++;
+  let worst = 0;
+  const rot = (v: number[], rx: number, ry: number) => {
+    const m = rotateMesh({ pos: new Float64Array(v), tri: new Uint32Array([0, 0, 0]) }, rx, ry);
+    return [m.pos[0], m.pos[1], m.pos[2]];
+  };
+  for (let i = 0; i < 50; i++) {
+    const cur = { rx: (i * 37) % 360 - 180, ry: (i * 53) % 180 - 90 };
+    const n0 = [Math.sin(i * 1.3), Math.cos(i * 0.7), Math.sin(i * 2.1) - 0.3];
+    const l = Math.hypot(...n0);
+    const base = n0.map((v) => v / l);
+    const world = rot(base, cur.rx, cur.ry);
+    const o = layOnFace(world as [number, number, number], cur);
+    const after = rot(base, o.rx, o.ry);
+    worst = Math.max(worst, Math.hypot(after[0], after[1], after[2] + 1));
+  }
+  const okF = worst < 1e-3;
+  if (!okF) fails++;
+  console.log(`${okF ? '✓' : '✗'} Fläche aufs Bett: größte Abweichung ${worst.toExponential(1)}`);
+
+  // Skalieren + Spiegeln
+  const box = TEMPLATES.find((x) => x.id === 'box')!.model;
+  const S = { globals: { tol: 0.2, fase: true }, orientation: { rx: 0, ry: 0 }, zones: null, palette: [{ slot: 1, name: 'A', color: '#fff' }], material: 'pla', profile: PROFILES.standard, layer: 0.2, overhangDeg: 45, bedSize: 256, bedHeight: 256, split: { ...DEFAULT_SPLIT, enabled: false } };
+  const r0 = runPipeline(box, defaultValues(box), S);
+  const r1 = runPipeline({ ...box, xform: { scale: [-1.5, 1, 0.5] } }, defaultValues(box), S);
+  const sz = (r: typeof r0) => [0, 1, 2].map((k) => r.total.max[k] - r.total.min[k]);
+  checks++;
+  const okS = r1.total.manifold && Math.abs(sz(r1)[0] - sz(r0)[0] * 1.5) < 0.05 && Math.abs(sz(r1)[2] - sz(r0)[2] * 0.5) < 0.05 && Math.abs(r1.total.volume - r0.total.volume * 0.75) / r0.total.volume < 0.01;
+  if (!okS) fails++;
+  console.log(`${okS ? '✓' : '✗'} Skalieren/Spiegeln: ${sz(r0).map((v) => v.toFixed(1)).join('×')} → ${sz(r1).map((v) => v.toFixed(1)).join('×')}, Volumen ×${(r1.total.volume / r0.total.volume).toFixed(3)}, wasserdicht ${r1.total.manifold}`);
+
+  // Schneiden bei 30 % der Höhe mit Zapfen
+  const r2 = runPipeline(box, defaultValues(box), { ...S, split: { ...DEFAULT_SPLIT, enabled: true, cutAt: { axis: 2, frac: 0.3 } } });
+  checks++;
+  const segs = r2.pieces?.filter((p) => p.kind === 'segment') ?? [];
+  const okC = segs.length === 2 && segs.every((p) => p.manifold);
+  if (!okC) fails++;
+  console.log(`${okC ? '✓' : '✗'} Schneiden (Z 30 %): ${segs.length} Stücke, wasserdicht ${segs.every((p) => p.manifold)}, Verbinder ${r2.splitReport?.joints ?? '?'}`);
+
+  // Modifier + Stütz-Blocker im 3MF
+  const mk = (o: Partial<FreePart>): FreePart => ({ id: 1, kind: 'quader', name: 'x', hole: false, slot: 1, pos: [0, 0, 0], rot: [0, 0, 0], size: [10, 10, 10], e: {}, ...o });
+  const fm = freeToModel([
+    mk({ id: 1, name: 'Block', size: [60, 40, 20], pos: [0, 0, 10] }),
+    mk({ id: 2, name: 'Verstärkung', role: 'modifier', size: [20, 40, 20], pos: [0, 0, 10], e: { mInfill: 80, mWalls: 5 } }),
+    mk({ id: 3, name: 'Keine Stützen', role: 'blocker', size: [10, 10, 10], pos: [25, 0, 5] }),
+  ])!;
+  const r3 = runPipeline(fm, {}, S);
+  const roles = r3.parts.filter((p) => p.role).map((p) => p.role);
+  const blob = await threeMf([{ name: 'Test', parts: r3.parts.map((p) => ({ name: p.name, slot: p.slot, color: p.color, mesh: p.mesh, role: p.role, infill: p.infill, walls: p.walls })) }], { title: 'Test', bedSize: 256 });
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const cfg = await zip.file('Metadata/model_settings.config')!.async('string');
+  checks++;
+  const okM = roles.join(',') === 'modifier,blocker' && cfg.includes('subtype="modifier_part"') && cfg.includes('subtype="support_blocker"') && cfg.includes('sparse_infill_density" value="80%"') && Math.abs(r3.total.volume - 60 * 40 * 20) < 30;
+  if (!okM) fails++;
+  console.log(`${okM ? '✓' : '✗'} Modifier/Blocker: Rollen ${roles.join(',')}, 3MF-Untertypen ${okM ? 'ok' : 'fehlen'}, Druckvolumen ${r3.total.volume.toFixed(0)} mm³`);
+})();
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);
 if (fails) process.exit(1);

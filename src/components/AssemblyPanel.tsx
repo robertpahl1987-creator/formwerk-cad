@@ -22,7 +22,7 @@ const slug = (s: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 30) || 'teil';
-const toExport = (ps: PartResult[]): ExportPart[] => ps.map((p) => ({ name: p.name, slot: p.slot, color: p.color, mesh: p.mesh }));
+const toExport = (ps: PartResult[]): ExportPart[] => ps.map((p) => ({ name: p.name, slot: p.slot, color: p.color, mesh: p.mesh, role: p.role, infill: p.infill, walls: p.walls }));
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const tick = () => new Promise((r) => setTimeout(r, 30));
 

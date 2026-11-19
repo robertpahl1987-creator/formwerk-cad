@@ -721,16 +721,70 @@ function PartEditor({
           className="flex-1 min-w-0 h-9 rounded-md bg-[#161b22] border border-[#30363d] focus:border-[#00ae42] outline-none px-2.5 text-sm font-semibold text-slate-100"
         />
         <div className="flex rounded-lg border border-[#30363d] overflow-hidden shrink-0">
-          <button onClick={() => set('mode', (p) => (p.hole = false))} className={cx('h-9 px-3 text-[12.5px]', !part.hole ? 'bg-[#00ae42] text-white' : 'text-slate-400')}>
+          <button
+            onClick={() =>
+              set('mode', (p) => {
+                p.hole = false;
+                p.role = undefined;
+              })
+            }
+            className={cx('h-9 px-3 text-[12.5px]', !part.hole && !part.role ? 'bg-[#00ae42] text-white' : 'text-slate-400')}
+          >
             Körper
           </button>
-          <button onClick={() => set('mode', (p) => (p.hole = true))} className={cx('h-9 px-3 text-[12.5px]', part.hole ? 'bg-red-600 text-white' : 'text-slate-400')}>
+          <button
+            onClick={() =>
+              set('mode', (p) => {
+                p.hole = true;
+                p.role = undefined;
+              })
+            }
+            className={cx('h-9 px-3 text-[12.5px]', part.hole ? 'bg-red-600 text-white' : 'text-slate-400')}
+          >
             Loch
           </button>
         </div>
       </div>
 
-      {!part.hole && palette.length > 1 && (
+      <div>
+        <div className="text-[11.5px] text-slate-400 mb-1">Slicer-Teil (wie Bambu Studio / OrcaSlicer – wird nicht gedruckt)</div>
+        <div className="grid grid-cols-4 gap-1">
+          {(
+            [
+              [undefined, 'Normal'],
+              ['modifier', 'Modifier'],
+              ['blocker', 'Stütz-Blocker'],
+              ['enforcer', 'Stütz-Erzw.'],
+            ] as const
+          ).map(([r, lab]) => (
+            <button
+              key={lab}
+              onClick={() =>
+                set('role', (p) => {
+                  p.role = r;
+                  if (r) p.hole = false;
+                })
+              }
+              className={cx(
+                'h-8 rounded-md border text-[11.5px]',
+                part.role === r ? (r === 'modifier' ? 'border-yellow-400 bg-yellow-400/15 text-white' : r === 'blocker' ? 'border-red-400 bg-red-400/15 text-white' : r ? 'border-sky-400 bg-sky-400/15 text-white' : 'border-[#00ae42] bg-[#00ae42]/15 text-white') : 'border-[#30363d] text-slate-400',
+              )}
+            >
+              {lab}
+            </button>
+          ))}
+        </div>
+        {part.role === 'modifier' && (
+          <div className="mt-2 space-y-1">
+            <SliderRow label="Füllung im Bereich" value={Number(part.e.mInfill ?? 40)} min={0} max={100} step={5} unit="%" onChange={(v) => set('mInfill', (p) => (p.e.mInfill = v))} />
+            <SliderRow label="Wände im Bereich" value={Number(part.e.mWalls ?? 3)} min={1} max={10} step={1} onChange={(v) => set('mWalls', (p) => (p.e.mWalls = v))} />
+          </div>
+        )}
+        {part.role === 'blocker' && <p className="text-[11.5px] text-slate-500 mt-1">Hier setzt der Slicer keine Stützen (z. B. in Bohrungen oder unter Fasen).</p>}
+        {part.role === 'enforcer' && <p className="text-[11.5px] text-slate-500 mt-1">Hier erzwingt der Slicer Stützen – auch wenn „Stützen“ sonst aus ist.</p>}
+      </div>
+
+      {!part.hole && !part.role && palette.length > 1 && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[13px] text-slate-300 mr-1">Farbe</span>
           {palette.map((f) => (

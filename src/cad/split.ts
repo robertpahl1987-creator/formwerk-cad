@@ -27,6 +27,8 @@ export interface SplitOptions {
   /** 0 = automatisch nach Querschnittsfläche */
   perFace: number;
   minWall: number;
+  /** Schneiden-Werkzeug: genau ein Schnitt quer zur Achse an dieser Stelle (0…1 der Modellhöhe/-breite) */
+  cutAt?: { axis: 0 | 1 | 2; frac: number };
 }
 
 export const DEFAULT_SPLIT: SplitOptions = {
@@ -139,13 +141,17 @@ export function splitParts(
   let parts = partsIn;
   const size = [0, 1, 2].map((i) => bb.max[i] - bb.min[i]);
   const usable = [bed.size - 3, bed.size - 3, bed.height - 2];
+  const cut = o.cutAt;
   const counts = [0, 1, 2].map((i) => {
+    if (cut) return i === cut.axis ? 2 : 1;
     const manual = Math.round(o.cuts[i]);
     if (manual > 0) return Math.min(12, manual);
     return Math.max(1, Math.ceil(size[i] / usable[i]));
   }) as [number, number, number];
   const warnings: string[] = [];
-  const planes: number[][] = [0, 1, 2].map((i) => Array.from({ length: counts[i] - 1 }, (_, k) => bb.min[i] + ((k + 1) * size[i]) / counts[i]));
+  const planes: number[][] = cut
+    ? [0, 1, 2].map((i) => (i === cut.axis ? [bb.min[i] + Math.min(0.97, Math.max(0.03, cut.frac)) * size[i]] : []))
+    : [0, 1, 2].map((i) => Array.from({ length: counts[i] - 1 }, (_, k) => bb.min[i] + ((k + 1) * size[i]) / counts[i]));
 
   const BIG = 1e4;
   const bounds = (i: number, k: number): [number, number] => [k === 0 ? -BIG : planes[i][k - 1], k === counts[i] - 1 ? BIG : planes[i][k]];

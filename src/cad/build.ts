@@ -582,6 +582,24 @@ export interface BuiltPiece {
   cell: [number, number, number];
   parts: BuiltPart[];
 }
+/**
+ * Slicer-Hilfskörper (Modifier, Stütz-Blocker …) in derselben Lage wie das Modell bauen:
+ * gleiche Skalierung und Ausrichtung, danach um `t` verschoben (Ablage aufs Bett).
+ */
+export function buildExtras(model: ModelDef, values: Record<string, Value>, g: Globals, o: Orientation, t: [number, number, number]): { extra: NonNullable<ModelDef['extras']>[number]; polys: number[][][] }[] {
+  if (!model.extras?.length) return [];
+  const ctx: Ctx = { scope: makeScope(model, values, g), count: { n: 0 } };
+  const xs = model.xform?.scale;
+  return model.extras.map((ex) => {
+    let gg = unionAll(children(xs && xs.some((v) => v !== 1) ? [{ type: 'scale', v: xs, children: [ex.node] }] : [ex.node], ctx));
+    if (!gg) return { extra: ex, polys: [] };
+    if (o.rx) gg = T.rotateX(o.rx * DEG, gg);
+    if (o.ry) gg = T.rotateY(o.ry * DEG, gg);
+    gg = T.translate(t, gg);
+    return { extra: ex, polys: polysOf(gg) };
+  });
+}
+
 export interface BuildOutput {
   parts: BuiltPart[];
   /** Nur bei aktivierter Aufteilung: druckbare Segmente (+ Dübel) */
@@ -615,12 +633,15 @@ export function buildParts(
     if (!gr) groups.push((gr = { slot, name, geoms: [] }));
     return gr;
   };
+  // Modell skalieren/spiegeln: jeden Wurzelknoten einpacken (Farbgruppen bleiben erhalten)
+  const xs = model.xform?.scale;
+  const wrap = (ns: CadNode[]): CadNode[] => (xs && xs.some((v) => v !== 1) ? [{ type: 'scale', v: xs, children: ns }] : ns);
   try {
     for (const n of model.root) {
       if (n.type === 'color') {
         const slot = clamp(Math.round(num(n.slot, ctx.scope, 'color.slot')), 1, 8);
-        groupFor(slot, n.name || `Farbe ${slot}`).geoms.push(...children(n.children, ctx));
-      } else groupFor(1, 'Basis').geoms.push(...build(n, ctx));
+        groupFor(slot, n.name || `Farbe ${slot}`).geoms.push(...children(wrap(n.children), ctx));
+      } else groupFor(1, 'Basis').geoms.push(...children(wrap([n]), ctx));
     }
     let parts = groups
       .map((gr) => ({ slot: gr.slot, name: gr.name, geom: unionAll(gr.geoms) }))

@@ -13,7 +13,12 @@ export interface ExportPart {
   slot: number;
   color: string; // #rrggbb
   mesh: Mesh;
+  /** Slicer-Hilfskörper → Bambu/Orca-Untertyp im 3MF */
+  role?: 'modifier' | 'blocker' | 'enforcer';
+  infill?: number;
+  walls?: number;
 }
+const SUBTYPE = { modifier: 'modifier_part', blocker: 'support_blocker', enforcer: 'support_enforcer' } as const;
 
 export function stlBinary(meshes: Mesh[], header = 'Formwerk CAD'): Uint8Array {
   const count = meshes.reduce((s, m) => s + m.tri.length / 3, 0);
@@ -108,7 +113,9 @@ export async function threeMf(objects: ExportObject[], opt: ThreeMfOptions): Pro
   <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
 </Relationships>`,
   );
-  const allParts = objects.flatMap((o) => o.parts);
+  // Hilfskörper hinter die druckbaren Teile sortieren (erstes Teil bestimmt das Objekt)
+  objects = objects.map((o) => ({ ...o, parts: [...o.parts.filter((p) => !p.role), ...o.parts.filter((p) => p.role)] }));
+  const allParts = objects.flatMap((o) => o.parts).filter((p) => !p.role);
   const slots = [...new Set(allParts.map((p) => p.slot))].sort((a, b) => a - b);
   const colorOf = (slot: number) => (allParts.find((p) => p.slot === slot)?.color ?? '#cccccc').toUpperCase();
   const c = opt.bedSize / 2;
@@ -120,7 +127,7 @@ export async function threeMf(objects: ExportObject[], opt: ThreeMfOptions): Pro
     const partIds: number[] = [];
     for (const p of obj.parts) {
       partIds.push(id);
-      res.push(`<object id="${id}" type="model" name="${xmlEsc(p.name)}" pid="1" pindex="${slots.indexOf(p.slot)}">${meshXml(p.mesh)}</object>`);
+      res.push(`<object id="${id}" type="model" name="${xmlEsc(p.name)}" pid="1" pindex="${Math.max(0, slots.indexOf(p.slot))}">${meshXml(p.mesh)}</object>`);
       id++;
     }
     let objId: number;
@@ -135,9 +142,13 @@ export async function threeMf(objects: ExportObject[], opt: ThreeMfOptions): Pro
 ${profileMeta(opt.profile, '    ', opt.layer)}
 ${obj.parts
   .map(
-    (p, i) => `    <part id="${partIds[i]}" subtype="normal_part">
+    (p, i) => `    <part id="${partIds[i]}" subtype="${p.role ? SUBTYPE[p.role] : 'normal_part'}">
       <metadata key="name" value="${xmlEsc(p.name)}"/>
-      <metadata key="extruder" value="${p.slot}"/>
+      <metadata key="extruder" value="${p.role ? 0 : p.slot}"/>${
+        p.role === 'modifier'
+          ? `${p.infill !== undefined ? `\n      <metadata key="sparse_infill_density" value="${Math.round(p.infill * 100)}%"/>` : ''}${p.walls !== undefined ? `\n      <metadata key="wall_loops" value="${p.walls}"/>` : ''}`
+          : ''
+      }
     </part>`,
   )
   .join('\n')}

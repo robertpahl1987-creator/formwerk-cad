@@ -4,7 +4,7 @@
  * Vorschau, Druck-Check, Mehrfarben, Aufteilen und Export genau wie bei
  * Vorlagen und KI-Modellen – ohne eigene Geometrie-Engine.
  */
-import type { CadNode, ModelDef, ModelImport } from './types';
+import type { CadNode, ModelDef, ModelExtra, ModelImport, PartRole } from './types';
 import { getImported } from '../mesh/importMesh';
 
 export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'hohlraum' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk' | 'import' | 'gewinde';
@@ -26,6 +26,8 @@ export interface FreePart {
   lock?: boolean;
   /** Zusammengefügte Teile teilen eine Gruppen-Nummer und bewegen sich gemeinsam */
   group?: number;
+  /** Slicer-Hilfskörper wie in Bambu Studio / OrcaSlicer (wird nicht gedruckt) */
+  role?: PartRole;
   /** Nur Text: vorberechnete Schrift-Umrisse (Höhe 1, zentriert) */
   outline?: TextOutline | null;
 }
@@ -432,7 +434,17 @@ function placed(p: FreePart): CadNode {
 }
 
 /** Baut aus den Teilen ein normales Formwerk-Modell. */
-export function freeToModel(parts: FreePart[], opts: { weldAll?: boolean } = {}): ModelDef | null {
+export function freeToModel(allParts: FreePart[], opts: { weldAll?: boolean } = {}): ModelDef | null {
+  // Slicer-Hilfskörper getrennt (Modifier, Stütz-Blocker/-Erzwinger)
+  const extras: ModelExtra[] = allParts
+    .filter((p) => p.role)
+    .map((p) => ({
+      role: p.role!,
+      name: p.name,
+      node: placed({ ...p, hole: false }),
+      ...(p.role === 'modifier' ? { infill: num(p.e.mInfill, 40) / 100, walls: Math.round(num(p.e.mWalls, 3)) } : {}),
+    }));
+  const parts = allParts.filter((p) => !p.role);
   // Importierte Körper laufen normalerweise nicht durch die CSG-Engine (große Netze), sondern werden als
   // eigene Teile angefügt. Verschweißte Importe und Importe, in die ein Loch ragt, werden echt vereinigt.
   const holesAll = parts.filter((p) => p.hole);
@@ -480,13 +492,14 @@ export function freeToModel(parts: FreePart[], opts: { weldAll?: boolean } = {})
       : slots.map((s) => ({ type: 'color', slot: s, name: `Farbe ${s}`, children: [solid(bodies.filter((b) => (b.slot || 1) === s))] }));
   return {
     name: 'Eigenes Modell',
-    description: `Frei gebaut aus ${parts.length} Teil${parts.length === 1 ? '' : 'en'}`,
+    description: `Frei gebaut aus ${allParts.length} Teil${allParts.length === 1 ? '' : 'en'}`,
     params: [],
     root,
     source: 'custom',
     templateId: 'frei',
-    freeParts: parts,
+    freeParts: allParts,
     ...(imports.length ? { imports } : {}),
+    ...(extras.length ? { extras } : {}),
   };
 }
 

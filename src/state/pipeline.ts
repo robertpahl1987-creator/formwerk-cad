@@ -1,7 +1,7 @@
-import { buildParts, type HollowOptions } from '../cad/build';
+import { buildExtras, buildParts, type HollowOptions } from '../cad/build';
 import { rotV } from '../cad/assembly';
 import { getImported } from '../mesh/importMesh';
-import type { ModelImport } from '../cad/types';
+import type { ModelImport, PartRole } from '../cad/types';
 import type { SplitOptions, SplitReport } from '../cad/split';
 import type { ColorZone, FilamentSlot, Globals, ModelDef, Orientation, Value } from '../cad/types';
 import {
@@ -24,7 +24,15 @@ export interface PartResult {
   color: string;
   mesh: Mesh;
   stats: MeshStats;
+  /** Slicer-Hilfskörper (wird nicht gedruckt): Modifier, Stütz-Blocker, Stütz-Erzwinger */
+  role?: PartRole;
+  /** nur Modifier */
+  infill?: number;
+  walls?: number;
 }
+
+/** Nur die druckbaren Teile (ohne Modifier/Blocker). */
+export const printable = (ps: PartResult[]) => ps.filter((p) => !p.role);
 
 export interface PieceResult {
   label: string;
@@ -130,6 +138,23 @@ const ORIENTS: [number, number][] = [
   [0, -90],
 ];
 
+/** Ganzes Modell skalieren/spiegeln (negativer Faktor = Spiegeln → Flächen umdrehen). */
+export function scaleMesh(m: Mesh, k?: [number, number, number]): Mesh {
+  if (!k || (k[0] === 1 && k[1] === 1 && k[2] === 1)) return m;
+  const p = new Float64Array(m.pos.length);
+  for (let i = 0; i < p.length; i += 3) {
+    p[i] = m.pos[i] * k[0];
+    p[i + 1] = m.pos[i + 1] * k[1];
+    p[i + 2] = m.pos[i + 2] * k[2];
+  }
+  if (k[0] * k[1] * k[2] < 0) {
+    const t = new Uint32Array(m.tri);
+    for (let i = 0; i < t.length; i += 3) [t[i + 1], t[i + 2]] = [t[i + 2], t[i + 1]];
+    return { pos: p, tri: t };
+  }
+  return { pos: p, tri: m.tri };
+}
+
 /** Importiertes Netz in Modellkoordinaten: skalieren, drehen (X→Y→Z), verschieben. */
 export function importToMesh(im: ModelImport): Mesh {
   const src = getImported(im.ref);
@@ -169,7 +194,7 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
   if (imports.length) {
     // Importe genauso ausrichten wie das CAD-Modell, danach alles gemeinsam aufs Bett legen
     const t = out.placement.t;
-    const im = imports.map((x) => ({ x, mesh: translateMesh(rotateMesh(importToMesh(x), s.orientation.rx, s.orientation.ry), t) }));
+    const im = imports.map((x) => ({ x, mesh: translateMesh(rotateMesh(scaleMesh(importToMesh(x), model.xform?.scale), s.orientation.rx, s.orientation.ry), t) }));
     const b = bounds([...parts.map((p) => p.mesh), ...im.map((i) => i.mesh)]);
     const d: [number, number, number] = [-(b.min[0] + b.max[0]) / 2, -(b.min[1] + b.max[1]) / 2, -b.min[2]];
     const moved = Math.abs(d[0]) + Math.abs(d[1]) + Math.abs(d[2]) > 1e-9;
@@ -178,6 +203,15 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
       ...im.map((i) => mk(i.x.slot, `Import: ${i.x.name}`, moved ? translateMesh(i.mesh, d) : i.mesh)),
     ];
     out.placement = { ...out.placement, t: [t[0] + d[0], t[1] + d[1], t[2] + d[2]] };
+  }
+  // Slicer-Hilfskörper (Modifier, Stütz-Blocker/-Erzwinger) in gleicher Lage dazulegen
+  const extraParts: PartResult[] = [];
+  if (model.extras?.length && !out.pieces) {
+    for (const { extra, polys } of buildExtras(model, values, s.globals, s.orientation, out.placement.t)) {
+      if (!polys.length) continue;
+      const mesh = meshFromPolygons(polys);
+      extraParts.push({ slot: 0, name: extra.name, color: extra.role === 'modifier' ? '#f2c94c' : extra.role === 'blocker' ? '#ff6b6b' : '#4dabf7', mesh, stats: analyzeMesh(mesh, s.overhangDeg, 0), role: extra.role, infill: extra.infill, walls: extra.walls });
+    }
   }
   const total = analyzeMesh(mergeMeshes(parts.map((p) => p.mesh)), s.overhangDeg);
   suppressSupportedOverhangs(parts);
@@ -193,7 +227,7 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
   estimate.minutes += (swaps * 45) / 60;
 
   const res: BuildResult = {
-    parts,
+    parts: [...parts, ...extraParts],
     total,
     estimate,
     ms: 0,
