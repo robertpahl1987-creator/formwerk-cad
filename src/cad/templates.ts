@@ -721,7 +721,7 @@ export const TEMPLATES: Template[] = [
             (pat, i): CadNode => ({ type: 'if', cond: `muster == ${i + 1}`, then: [{ type: 'radial', h: 'H - 1.5', r0: 'D/2', r1: 'D/2 - 0.5', pattern: pat, depth: 'tiefe', count: 'round(PI*D/3.2)', pitch: 6 }] }),
           ),
           // Deckel mit Fase
-          T([0, 0, 'H - 1.51'], { type: 'cylinder', r1: 'D/2 - 0.5 - tiefe', r2: 'D/2 - 0.5 - tiefe - 1.2', h: 1.51 }),
+          T([0, 0, 'H - 2.13'], { type: 'cylinder', r1: 'D/2 - 0.55 - tiefe', r2: 'D/2 - 0.5 - tiefe - 1.2', h: 2.13 }),
         ),
         T([0, 0, -1], { type: 'intersection', children: [{ type: 'cylinder', d: 'welle + 2*tol', h: 'H - 2' }, T(['-welle/2 - 1 + 0.5', 0, 0], { type: 'cube', size: ['welle + 2', 'welle + 2', 'H'], center: false } as CadNode)] }),
       ),
