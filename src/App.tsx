@@ -1,13 +1,14 @@
 import { Component, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
-import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, ObjectList, OptimizePanel, ParamPanel, PrintCheck, SaveToMyParts, SplitPanel, ToleranceCalibration } from './components/ModelPanels';
+import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, HistoryPanel, LayersPanel, ObjectList, OptimizePanel, ParamPanel, PrintCheck, SaveToMyParts, SplitPanel, ToleranceCalibration } from './components/ModelPanels';
 import { ContextMenu } from './components/ContextMenu';
 import { AssemblyPanel, PlateBar } from './components/AssemblyPanel';
 import { PlateJobPanel, usePacked } from './components/PlateJobPanel';
 import { plateJob, usePlateJob } from './state/plateJob';
 import { printPreview, usePrintLayer } from './state/printPreview';
 import { layOnFace, slicerTools, useSlicerTools } from './state/slicerTools';
+import { timeline } from './state/timeline';
 import { SlicerToolbar } from './components/SlicerTools';
 import { asmSettings, assembledParts } from './state/assemblyBuild';
 import { EditPanel } from './components/EditPanel';
@@ -295,6 +296,7 @@ function PanelContent() {
                 </div>
               )}
               <ObjectList />
+              <HistoryPanel />
               <ParamPanel />
               <EditPanel />
             </>
@@ -309,6 +311,7 @@ function PanelContent() {
           <EmptyState />
           <PrintCheck />
           <OptimizePanel />
+          <LayersPanel />
           <ExportPanel />
           <SaveToMyParts />
           <PlateJobPanel />
@@ -647,6 +650,15 @@ export function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.build]);
+
+  // Verlauf: Zwischenstand 1,5 s nach der letzten Änderung festhalten
+  useEffect(() => {
+    if (!state.model) return;
+    const m = state.model,
+      v = state.values;
+    const id = setTimeout(() => timeline.record(m, v), 1500);
+    return () => clearTimeout(id);
+  }, [state.model, state.values]);
 
   // Modell bei jeder Änderung neu berechnen (entprellt)
   useEffect(() => {

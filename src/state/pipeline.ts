@@ -70,6 +70,8 @@ export interface BuildResult {
   hollowNote?: string;
   /** Hinweise zu importierten Dateien */
   importNote?: string;
+  /** Druckpausen für Einleger: Oberkante der Tasche (Druckhöhe) */
+  pauses?: { top: number; label: string }[];
 }
 
 export interface PipelineSettings {
@@ -237,6 +239,28 @@ export function runPipeline(model: ModelDef, values: Record<string, Value>, s: P
     purgeGrams: swaps * 0.4,
     hollowNote: out.hollowNote,
   };
+  if (model.inserts?.length && !out.pieces) {
+    const D = Math.PI / 180;
+    const k = model.xform?.scale ?? [1, 1, 1];
+    const t = out.placement.t;
+    const zOf = (x: number, y: number, z: number) => {
+      // wie beim Bauen: skalieren, um X, dann um Y drehen, verschieben
+      x *= k[0];
+      y *= k[1];
+      z *= k[2];
+      const a = s.orientation.rx * D,
+        b = s.orientation.ry * D;
+      const z1 = y * Math.sin(a) + z * Math.cos(a);
+      return -x * Math.sin(b) + z1 * Math.cos(b) + t[2];
+    };
+    res.pauses = model.inserts
+      .map((ins) => {
+        let top = -Infinity;
+        for (const x of [ins.min[0], ins.max[0]]) for (const y of [ins.min[1], ins.max[1]]) for (const z of [ins.min[2], ins.max[2]]) top = Math.max(top, zOf(x, y, z));
+        return { top, label: ins.label };
+      })
+      .sort((a, b) => a.top - b.top);
+  }
   if (imports.length) {
     const open = parts.filter((p) => p.name.startsWith('Import: ') && !p.stats.manifold);
     if (open.length) res.importNote = `${open.map((p) => `„${p.name.slice(8)}“`).join(', ')} hat offene Kanten – Bambu Studio/Orca reparieren das beim Laden meist automatisch.`;

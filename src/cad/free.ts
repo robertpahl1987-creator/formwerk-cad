@@ -7,7 +7,7 @@
 import type { CadNode, ModelDef, ModelExtra, ModelImport, PartRole } from './types';
 import { getImported } from '../mesh/importMesh';
 
-export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'hohlraum' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk' | 'import' | 'gewinde';
+export type FreeKind = 'quader' | 'zylinder' | 'kugel' | 'rohr' | 'keil' | 'hohlraum' | 'text' | 'schraubloch' | 'scharnier' | 'kugelgelenk' | 'import' | 'gewinde' | 'einleger';
 export type V3 = [number, number, number];
 export type FreeValue = number | boolean | string;
 
@@ -128,6 +128,29 @@ export const KINDS: Record<FreeKind, KindDef> = {
     ],
     hint: 'Wird fertig beweglich gedruckt. Verbinde jedes Blatt nur mit einem Teil, sonst ist das Scharnier festgeklebt. Zu fest? Spiel um 0,1 mm erhöhen.',
   },
+  einleger: {
+    size: false,
+    fields: [
+      {
+        key: 'typ',
+        label: 'Einleger',
+        type: 'select',
+        options: [
+          { value: 'magnet', label: 'Magnet (rund)' },
+          { value: 'm3', label: 'Mutter M3' },
+          { value: 'm4', label: 'Mutter M4' },
+          { value: 'm5', label: 'Mutter M5' },
+          { value: 'm6', label: 'Mutter M6' },
+          { value: 'm8', label: 'Mutter M8' },
+          { value: '608', label: 'Kugellager 608' },
+          { value: 'eigen', label: 'Eigene Maße (rund)' },
+        ],
+      },
+      { key: 'd', label: 'Ø Magnet / eigen', type: 'num', min: 2, max: 60, step: 0.5, unit: 'mm' },
+      { key: 'h', label: 'Höhe Magnet / eigen', type: 'num', min: 0.5, max: 30, step: 0.5, unit: 'mm' },
+    ],
+    hint: 'Tasche für ein Teil, das während des Drucks eingelegt wird: Die Tasche muss komplett im Körper liegen (oben zu). Die App setzt automatisch eine Druckpause genau vor der Schicht, die die Tasche schließt – Teil einlegen, am Drucker „Weiter“ drücken.',
+  },
   gewinde: {
     size: false,
     fields: [
@@ -183,6 +206,7 @@ export const PRESETS: Preset[] = [
   { label: 'Zapfen', icon: '▮', kind: 'zylinder', size: [8, 8, 10], e: { oben: 100, seg: 0 } },
   { label: 'Gewinde', icon: '🌀', kind: 'gewinde', e: { d: 10, p: 1.5, L: 20, iso: true } },
   { label: 'Gewindeloch', icon: '⊚', kind: 'gewinde', e: { d: 10, p: 1.5, L: 20, iso: true }, hole: true },
+  { label: 'Einleger', icon: '⏸', kind: 'einleger', e: { typ: 'magnet', d: 6, h: 2 }, hole: true },
 ];
 
 // ------------------------------------------------------------ Hilfen
@@ -316,6 +340,11 @@ export function partShape(p: FreePart): CadNode {
       return ballJoint(e);
     case 'import':
       return { type: 'import', ref: String(e.ref ?? ''), size: [r3(sx), r3(sy), r3(sz)] };
+    case 'einleger': {
+      const { d, h, hex } = einlegerMasse(e);
+      // Tasche mit Spiel (Drucktoleranz), unten bündig auf z = -h/2 … +h/2 (Mitte = pos)
+      return tr([0, 0, -h / 2], [{ type: 'cylinder', d: `${r3(d)} + 2*tol`, h: r3(h + 0.2), ...(hex ? { fn: 6 } : {}) }]);
+    }
     case 'gewinde': {
       const L = num(e.L, 20);
       const d = num(e.d, 10);
@@ -391,6 +420,10 @@ export function localExtent(p: FreePart): V3 {
     }
     case 'gewinde':
       return [num(e.d, 10), num(e.d, 10), num(e.L, 20)];
+    case 'einleger': {
+      const { d, h } = einlegerMasse(e);
+      return [d + 0.4, d + 0.4, h + 0.2];
+    }
     case 'kugelgelenk': {
       const R = num(e.Dk, 12) / 2,
         Ro = R + num(e.c, 0.35) + num(e.w, 2);
@@ -426,6 +459,17 @@ export function worldBox(p: FreePart): { min: V3; max: V3 } {
   return { min, max };
 }
 
+/** Taschenmaße je Einleger: d = Ø (bei Muttern Eckmaß des Sechskants), h = Höhe */
+export function einlegerMasse(e: Record<string, FreeValue>): { d: number; h: number; hex: boolean; label: string } {
+  const nuts: Record<string, [number, number]> = { m3: [5.5, 2.4], m4: [7, 3.2], m5: [8, 4], m6: [10, 5], m8: [13, 6.5] };
+  const t = String(e.typ ?? 'magnet');
+  if (nuts[t]) return { d: nuts[t][0] / Math.cos(Math.PI / 6), h: nuts[t][1], hex: true, label: `Mutter ${t.toUpperCase()}` };
+  if (t === '608') return { d: 22, h: 7, hex: false, label: 'Kugellager 608' };
+  const d = num(e.d, 6),
+    h = num(e.h, 2);
+  return { d, h, hex: false, label: t === 'magnet' ? `Magnet ${d}×${h}` : `Einleger ${d}×${h}` };
+}
+
 function placed(p: FreePart): CadNode {
   const q = p.hole && KINDS[p.kind].size ? { ...p, size: p.size.map((v) => v + 2 * HOLE_EPS) as V3 } : p;
   const shape = partShape(q);
@@ -445,6 +489,13 @@ export function freeToModel(allParts: FreePart[], opts: { weldAll?: boolean } = 
       ...(p.role === 'modifier' ? { infill: num(p.e.mInfill, 40) / 100, walls: Math.round(num(p.e.mWalls, 3)) } : {}),
     }));
   const parts = allParts.filter((p) => !p.role);
+  // Einleger-Taschen → Druckpause vor der Schicht, die sie schließt
+  const inserts = parts
+    .filter((p) => p.kind === 'einleger' && p.hole)
+    .map((p) => {
+      const b = worldBox(p);
+      return { label: einlegerMasse(p.e).label, min: b.min, max: b.max };
+    });
   // Importierte Körper laufen normalerweise nicht durch die CSG-Engine (große Netze), sondern werden als
   // eigene Teile angefügt. Verschweißte Importe und Importe, in die ein Loch ragt, werden echt vereinigt.
   const holesAll = parts.filter((p) => p.hole);
@@ -500,6 +551,7 @@ export function freeToModel(allParts: FreePart[], opts: { weldAll?: boolean } = 
     freeParts: allParts,
     ...(imports.length ? { imports } : {}),
     ...(extras.length ? { extras } : {}),
+    ...(inserts.length ? { inserts } : {}),
   };
 }
 

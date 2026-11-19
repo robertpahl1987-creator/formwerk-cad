@@ -53,6 +53,8 @@ export interface Settings {
   palette: FilamentSlot[];
   split: SplitOptions;
   hollow: HollowOptions;
+  /** Variable Schichthöhe (adaptiv) */
+  adaptive?: boolean;
 }
 
 export interface ViewOpts {
@@ -172,6 +174,7 @@ export type Action =
   | { type: 'asmNew' }
   /** Ganzes Modell skalieren/spiegeln (null = zurücksetzen) */
   | { type: 'xform'; scale: [number, number, number] | null }
+  | { type: 'ranges'; ranges: NonNullable<ModelDef['ranges']> }
   | { type: 'asmView'; view: AsmState['view'] }
   | { type: 'asmEdit'; id: number | null }
   | { type: 'asmJoints'; patch: Partial<AsmJointOptions> }
@@ -300,6 +303,8 @@ function reducer(s: State, a: Action): State {
         },
       };
     }
+    case 'ranges':
+      return s.model ? { ...s, model: { ...s.model, ranges: a.ranges.length ? a.ranges : undefined } } : s;
     case 'xform': {
       if (!s.model) return s;
       const { xform: _old, ...rest } = s.model;

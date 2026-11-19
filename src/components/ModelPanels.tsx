@@ -8,6 +8,8 @@ import { bestOrientation, MATERIALS, mergeMeshes, PATTERN_LABEL, PROFILES, rotat
 import { saveFile } from '../platform/download';
 import { optimizePrint, type OptimizePlan } from '../mesh/optimize';
 import { myParts, useMyParts, type MyPart } from '../state/myParts';
+import { timeline, useTimeline, type Snapshot } from '../state/timeline';
+import { adaptiveRanges, layerCount, LAYER_STEPS, mergeRanges, type LayerRange } from '../mesh/adaptive';
 import { freeBus } from '../state/freeBus';
 import type { FreePart } from '../cad/free';
 import { hashId, registerImported, weldTriangles } from '../mesh/importMesh';
@@ -544,6 +546,16 @@ export function PrintCheck() {
         <Stat label={`Überhänge > ${state.settings.overhangDeg}°`} value={overCm2 < 0.05 ? '✓ keine' : `${g1(overCm2)} cm²`} tone={overCm2 < 0.05 ? 'ok' : overCm2 < 2 ? 'warn' : 'bad'} />
       </div>
       {b.importNote && <p className="text-[12px] text-amber-300">⚠ {b.importNote}</p>}
+      {b.pauses && b.pauses.length > 0 && (
+        <div className="rounded-lg border border-[#4dabf7]/50 bg-[#4dabf7]/10 p-2 text-[12px] text-sky-100 space-y-0.5">
+          {b.pauses.map((p, i) => (
+            <div key={i}>
+              ⏸ Druckpause bei {((Math.floor(p.top / state.settings.layer + 1e-6) + 1) * state.settings.layer).toFixed(2).replace('.', ',')} mm: <b>{p.label}</b> einlegen
+            </div>
+          ))}
+          <div className="text-[11px] text-sky-200/70">Steht im 3MF – der Drucker hält an, Teil einlegen, „Weiter“ drücken.</div>
+        </div>
+      )}
       {!b.fitsBed && !b.pieces && (
         <Button className="w-full" onClick={() => dispatch({ type: 'settings', patch: { split: { ...state.settings.split, enabled: true } } })}>
           ✂️ Automatisch auf mehrere Platten aufteilen
@@ -636,7 +648,7 @@ export function ExportPanel() {
         files.push({ name: 'Montageanleitung.txt', data: guide() });
         done(await saveFile(`${base}_${b.plates.length}-platten.zip`, await zipFiles(files)), `${b.plates.length} Platten als 3MF`);
       } else {
-        const blob = await threeMf([{ name: m.name, parts: toExport(b.parts) }], { title: m.name, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile, layer: state.settings.layer });
+        const blob = await threeMf([{ name: m.name, parts: toExport(b.parts) }], { title: m.name, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile, layer: state.settings.layer, pauses: b.pauses, ranges: rangesFor(state) });
         done(await saveFile(`${base}.3mf`, blob), '3MF');
       }
     });
@@ -977,6 +989,152 @@ export function ObjectList() {
         </div>
       )}
       <p className="text-[11px] text-slate-500">Modifier, Stütz-Blocker und -Erzwinger legst du in „Frei bauen“ an (Teil antippen → Slicer-Teil). Sie landen als solche im 3MF für Bambu Studio und OrcaSlicer.</p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------- Verlauf
+export function HistoryPanel() {
+  const { state, dispatch } = useStore();
+  const list = useTimeline();
+  if (list.length < 2) return null;
+  const restore = (s: Snapshot) => {
+    timeline.mark(s.model, s.values);
+    dispatch({ type: 'setModel', model: structuredClone(s.model), values: { ...s.values } });
+    if (s.model.templateId === 'frei') freeBus.send({ type: 'load', parts: (s.model.freeParts as FreePart[]) ?? [] });
+    dispatch({ type: 'toast', kind: 'ok', text: `Zurück zu: ${s.label}` });
+  };
+  const cur = JSON.stringify([state.model, state.values]);
+  return (
+    <Section title="🕘 Verlauf" defaultOpen={false}>
+      <ol className="space-y-1 max-h-72 overflow-y-auto">
+        {list.map((s, i) => {
+          const isCur = JSON.stringify([s.model, s.values]) === cur;
+          return (
+            <li key={s.id} className={cx('flex items-center gap-2 rounded-lg border px-2 py-1.5', isCur ? 'border-[#00ae42] bg-[#00ae42]/10' : 'border-[#30363d]')}>
+              <span className="text-[10.5px] text-slate-500 tabular-nums w-10 shrink-0">{new Date(s.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="flex-1 min-w-0 truncate text-[12.5px] text-slate-200">{s.label}</span>
+              {isCur ? (
+                <span className="text-[11px] text-[#3ddc84] shrink-0">{i === 0 ? 'aktuell' : 'geladen'}</span>
+              ) : (
+                <button className="h-7 px-2 rounded-md border border-[#30363d] text-[11.5px] text-slate-300 shrink-0" onClick={() => restore(s)}>
+                  ↩ hierhin
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="text-[11px] text-slate-500">Zwischenstände werden automatisch gespeichert (die letzten 40 in dieser Sitzung).</p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------- Schichthöhe & Höhenbereiche
+const adaptiveCache = new WeakMap<object, LayerRange[]>();
+function adaptiveFor(b: NonNullable<ReturnType<typeof useStore>['state']['build']>): LayerRange[] {
+  let r = adaptiveCache.get(b);
+  if (!r) {
+    r = adaptiveRanges(mergeMeshes(printable(b.parts).map((p) => p.mesh)));
+    adaptiveCache.set(b, r);
+  }
+  return r;
+}
+/** Bereiche fürs 3MF: adaptive Schichthöhe (falls an) + eigene Höhenbereiche. */
+export function rangesFor(state: ReturnType<typeof useStore>['state']): LayerRange[] | undefined {
+  const b = state.build;
+  if (!b || b.pieces) return undefined;
+  const h = b.total.max[2] - b.total.min[2];
+  const base = state.settings.adaptive ? adaptiveFor(b) : [];
+  const user = state.model?.ranges ?? [];
+  if (!base.length && !user.length) return undefined;
+  return mergeRanges(base, user, h);
+}
+
+export function LayersPanel() {
+  const { state, dispatch } = useStore();
+  const b = state.build;
+  const m = state.model;
+  if (!b || !m) return null;
+  const s = state.settings;
+  const h = b.total.max[2] - b.total.min[2];
+  const ranges = rangesFor(state) ?? [];
+  const user = m.ranges ?? [];
+  const nBase = Math.round(h / s.layer);
+  const nNow = layerCount(h, s.layer, ranges);
+  const setUser = (r: LayerRange[]) => dispatch({ type: 'ranges', ranges: r });
+  const upd = (i: number, patch: Partial<LayerRange>) => setUser(user.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const col = (lh?: number) => (lh === undefined ? '#30363d' : lh <= 0.1 ? '#4dabf7' : lh <= 0.14 ? '#3ddc84' : lh <= 0.18 ? '#a9e34b' : lh <= 0.22 ? '#ffd43b' : '#ff922b');
+  return (
+    <Section title="📐 Schichthöhe & Höhenbereiche" defaultOpen={!!(s.adaptive || user.length)}>
+      <Toggle
+        label="Variable Schichthöhe (adaptiv)"
+        hint="Fein (bis 0,08 mm) an flachen Schrägen und Rundungen, grob (bis 0,28 mm) an senkrechten Wänden – schöner und oft schneller"
+        checked={!!s.adaptive}
+        onChange={(v) => dispatch({ type: 'settings', patch: { adaptive: v } })}
+      />
+      {ranges.length > 0 && (
+        <div className="flex gap-2 items-stretch">
+          <div className="w-6 h-40 rounded overflow-hidden flex flex-col-reverse border border-[#30363d] shrink-0">
+            {ranges.map((r, i) => (
+              <div key={i} style={{ height: `${((r.to - r.from) / h) * 100}%`, background: col(r.layer) }} title={`${r.from.toFixed(1)}–${r.to.toFixed(1)} mm: ${r.layer ?? s.layer} mm`} />
+            ))}
+          </div>
+          <div className="text-[11.5px] text-slate-400 space-y-0.5 overflow-y-auto max-h-40 flex-1">
+            {[...ranges].reverse().map((r, i) => (
+              <div key={i} className="tabular-nums">
+                {r.from.toFixed(1).replace('.', ',')}–{r.to.toFixed(1).replace('.', ',')} mm: <span className="text-slate-200">{String(r.layer ?? s.layer).replace('.', ',')} mm</span>
+                {r.infill !== undefined && ` · ${Math.round(r.infill * 100)} %`}
+                {r.walls !== undefined && ` · ${r.walls} Wände`}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="text-[12px] text-slate-300">
+        Schichten: <b>{nNow}</b>
+        {nNow !== nBase && <span className="text-slate-500"> (statt {nBase} bei {String(s.layer).replace('.', ',')} mm)</span>}
+      </div>
+      <div className="pt-1">
+        <div className="text-[12px] text-slate-300 mb-1">Eigene Höhenbereiche</div>
+        {user.map((r, i) => (
+          <div key={i} className="rounded-lg border border-[#30363d] p-2 mb-1.5 space-y-1.5">
+            <div className="flex items-center gap-1.5 text-[12px]">
+              <NumberInput value={r.from} min={0} max={h} step={0.5} unit="mm" onChange={(v) => v !== undefined && upd(i, { from: v })} />
+              <span className="text-slate-500">bis</span>
+              <NumberInput value={r.to} min={0} max={h} step={0.5} unit="mm" onChange={(v) => v !== undefined && upd(i, { to: v })} />
+              <button className="h-8 px-2 rounded-md border border-[#5c1d24] text-red-300" onClick={() => setUser(user.filter((_, j) => j !== i))}>
+                🗑
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 text-[11px] text-slate-400">
+              <label>
+                Schicht
+                <select value={r.layer ?? ''} onChange={(e) => upd(i, { layer: e.target.value ? Number(e.target.value) : undefined })} className="w-full h-8 rounded-md bg-[#0d1117] border border-[#30363d] text-slate-100 px-1">
+                  <option value="">wie sonst</option>
+                  {LAYER_STEPS.map((l) => (
+                    <option key={l} value={l}>
+                      {String(l).replace('.', ',')} mm
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Füllung %
+                <NumberInput value={r.infill !== undefined ? Math.round(r.infill * 100) : undefined} min={0} max={100} step={5} onChange={(v) => upd(i, { infill: v === undefined ? undefined : v / 100 })} />
+              </label>
+              <label>
+                Wände
+                <NumberInput value={r.walls} min={1} max={10} step={1} onChange={(v) => upd(i, { walls: v === undefined ? undefined : Math.round(v) })} />
+              </label>
+            </div>
+          </div>
+        ))}
+        <Button className="w-full h-9 text-[12.5px]" onClick={() => setUser([...user, { from: Math.round(h * 0.5), to: Math.round(h * 10) / 10, infill: 0.4 }])}>
+          ＋ Höhenbereich
+        </Button>
+      </div>
+      <p className="text-[11px] text-slate-500">Wird ins 3MF geschrieben – Bambu Studio und OrcaSlicer übernehmen die Bereiche beim Öffnen (Objekt → Höhenbereich).</p>
     </Section>
   );
 }

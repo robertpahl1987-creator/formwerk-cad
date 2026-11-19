@@ -121,6 +121,10 @@ export interface ModelDef {
   xform?: { scale: [number, number, number] };
   /** Slicer-Hilfskörper (Modifier, Stütz-Blocker/-Erzwinger) – werden nicht gedruckt, sondern ins 3MF geschrieben */
   extras?: ModelExtra[];
+  /** Taschen für Einleger (Magnet, Mutter …): Hüllbox im Modellraum → automatische Druckpause */
+  inserts?: { label: string; min: [number, number, number]; max: [number, number, number] }[];
+  /** Höhenbereiche wie in Bambu/Orca (Druckhöhe in mm): eigene Schichthöhe/Füllung/Wände */
+  ranges?: { from: number; to: number; layer?: number; infill?: number; walls?: number }[];
 }
 
 export type PartRole = 'modifier' | 'blocker' | 'enforcer';

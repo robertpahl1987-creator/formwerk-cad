@@ -73,6 +73,10 @@ export interface ThreeMfOptions {
   profile?: PrintProfile;
   /** Schichthöhe in mm (Objekt-Einstellung) */
   layer?: number;
+  /** Druckpausen (Einleger): Oberkante der Tasche in mm; Pause vor der Schicht, die sie schließt */
+  pauses?: { top: number; label: string }[];
+  /** Höhenbereiche (variable Schichthöhe, Füllung, Wände) für Objekt 1 */
+  ranges?: { from: number; to: number; layer?: number; infill?: number; walls?: number }[];
 }
 
 /** Ein druckbares Objekt (ggf. aus mehreren Farbteilen), Koordinaten relativ zur Bettmitte. */
@@ -170,6 +174,45 @@ ${obj.parts
   </build>
 </model>`;
   zip.file('3D/3dmodel.model', model);
+  if (opt.pauses?.length) {
+    const lh = opt.layer ?? 0.2;
+    const seen = new Set<string>();
+    const layers = opt.pauses
+      .map((p) => ({ z: (Math.floor(p.top / lh + 1e-6) + 1) * lh, label: p.label }))
+      .filter((p) => {
+        const k = p.z.toFixed(3);
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .map((p) => `<layer top_z="${f(p.z)}" type="1" extruder="1" color="" extra="${xmlEsc(p.label + ' einlegen')}" gcode="M400 U1"/>`);
+    zip.file('Metadata/custom_gcode_per_layer.xml', `<?xml version="1.0" encoding="utf-8"?>
+<custom_gcodes_per_layer>
+<plate>
+<plate_info id="1"/>
+${layers.join('\n')}
+<mode value="SingleExtruder"/>
+</plate>
+</custom_gcodes_per_layer>
+`);
+  }
+  if (opt.ranges?.length) {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>\n<objects>\n <object id="1">\n${opt.ranges
+      .map(
+        (r) =>
+          `  <range min_z="${f(r.from)}" max_z="${f(r.to)}">\n${[
+            r.layer !== undefined ? `   <option opt_key="layer_height">${f(r.layer)}</option>` : '',
+            r.infill !== undefined ? `   <option opt_key="sparse_infill_density">${Math.round(r.infill * 100)}%</option>\n   <option opt_key="fill_density">${Math.round(r.infill * 100)}%</option>` : '',
+            r.walls !== undefined ? `   <option opt_key="wall_loops">${r.walls}</option>\n   <option opt_key="perimeters">${r.walls}</option>` : '',
+          ]
+            .filter(Boolean)
+            .join('\n')}\n  </range>`,
+      )
+      .join('\n')}\n </object>\n</objects>\n`;
+    // Bambu Studio / OrcaSlicer bzw. PrusaSlicer-Format
+    zip.file('Metadata/layer_config_ranges.xml', xml);
+    zip.file('Metadata/Slic3r_PE_layer_config_ranges.xml', xml);
+  }
   zip.file('Metadata/model_settings.config', `<?xml version="1.0" encoding="UTF-8"?>\n<config>\n${cfg.join('\n')}\n</config>`);
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'model/3mf' });
 }

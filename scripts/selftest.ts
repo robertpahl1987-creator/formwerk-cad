@@ -17,6 +17,7 @@ import { runPipeline } from '../src/state/pipeline';
 import { DEFAULT_HOLLOW } from '../src/cad/build';
 import { PROFILES } from '../src/mesh/mesh';
 import { optimizePrint } from '../src/mesh/optimize';
+import { adaptiveRanges, mergeRanges, layerCount } from '../src/mesh/adaptive';
 import { layOnFace } from '../src/state/slicerTools';
 import { threeMf } from '../src/mesh/export';
 import JSZip from 'jszip';
@@ -441,6 +442,43 @@ await (async () => {
   const okM = roles.join(',') === 'modifier,blocker' && cfg.includes('subtype="modifier_part"') && cfg.includes('subtype="support_blocker"') && cfg.includes('sparse_infill_density" value="80%"') && Math.abs(r3.total.volume - 60 * 40 * 20) < 30;
   if (!okM) fails++;
   console.log(`${okM ? '✓' : '✗'} Modifier/Blocker: Rollen ${roles.join(',')}, 3MF-Untertypen ${okM ? 'ok' : 'fehlen'}, Druckvolumen ${r3.total.volume.toFixed(0)} mm³`);
+})();
+
+// ---------------------------------------------------------------- Einleger-Pause + Höhenbereiche
+await (async () => {
+  const mk = (o: Partial<FreePart>): FreePart => ({ id: 1, kind: 'quader', name: 'x', hole: false, slot: 1, pos: [0, 0, 0], rot: [0, 0, 0], size: [10, 10, 10], e: {}, ...o });
+  const fm = freeToModel([
+    mk({ id: 1, name: 'Block', size: [40, 40, 10], pos: [0, 0, 5] }),
+    mk({ id: 2, kind: 'einleger', name: 'Magnet', hole: true, pos: [0, 0, 4], e: { typ: 'magnet', d: 8, h: 3 } }),
+    mk({ id: 3, kind: 'einleger', name: 'Mutter', hole: true, pos: [12, 0, 3], e: { typ: 'm4' } }),
+  ])!;
+  const S = { globals: { tol: 0.2, fase: true }, orientation: { rx: 0, ry: 0 }, zones: null, palette: [{ slot: 1, name: 'A', color: '#fff' }], material: 'pla', profile: PROFILES.standard, layer: 0.2, overhangDeg: 45, bedSize: 256, bedHeight: 256, split: { ...DEFAULT_SPLIT, enabled: false } };
+  const r = runPipeline(fm, {}, S);
+  checks++;
+  // Magnet: Tasche 3,2 hoch, Mitte 4 → Oberkante 5,6; Mutter M4: 3,4 hoch, Mitte 3 → 4,7
+  const tops = (r.pauses ?? []).map((p) => p.top.toFixed(2)).join(',');
+  const okP = r.total.manifold && tops === '4.70,5.60';
+  if (!okP) fails++;
+  const blob = await threeMf([{ name: 'T', parts: r.parts.map((p) => ({ name: p.name, slot: p.slot, color: p.color, mesh: p.mesh })) }], { title: 'T', bedSize: 256, layer: 0.2, pauses: r.pauses, ranges: [{ from: 0, to: 4, layer: 0.12 }, { from: 4, to: 10, infill: 0.5, walls: 4 }] });
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const g = await zip.file('Metadata/custom_gcode_per_layer.xml')?.async('string');
+  const rg = await zip.file('Metadata/layer_config_ranges.xml')?.async('string');
+  const ok3 = !!g && g.includes('top_z="4.8"') && g.includes('top_z="5.8"') && g.includes('M400 U1') && !!rg && rg.includes('<option opt_key="layer_height">0.12</option>') && rg.includes('50%');
+  if (!ok3) fails++;
+  console.log(`${okP && ok3 ? '✓' : '✗'} Einleger: Taschen-Oberkanten ${tops}, Pausen/Höhenbereiche im 3MF ${ok3}`);
+  if (!okP) checks--; // zusammen gezählt
+
+  // Variable Schichthöhe: Halbkugel → fein oben (flach), grob unten (steil)
+  const dome: ModelDef = { name: 'Kuppel', params: [], source: 'custom', root: [{ type: 'sphere', r: 25 }] };
+  const dm = meshFromPolygons(buildParts(dome, {}, { tol: 0.2, fase: true }, { rx: 0, ry: 0 }).parts.flatMap((p) => p.polys));
+  const ar = adaptiveRanges(dm);
+  const topL = ar[ar.length - 1]?.layer ?? 0, midL = ar.find((x) => x.from <= 25 && x.to >= 25)?.layer ?? 0;
+  const n = layerCount(50, 0.2, ar);
+  const merged = mergeRanges(ar, [{ from: 10, to: 20, infill: 0.6 }], 50);
+  checks++;
+  const okA = ar.length >= 3 && topL <= 0.12 && midL >= 0.24 && merged.some((m) => m.infill === 0.6) && n > 0;
+  if (!okA) fails++;
+  console.log(`${okA ? '✓' : '✗'} Variable Schichthöhe Kugel: ${ar.length} Bereiche, oben ${topL} mm, Mitte ${midL} mm, ${n} Schichten statt 250`);
 })();
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);
