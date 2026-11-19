@@ -28,6 +28,9 @@ function load(): Saved {
   return { parts: [], next: 1 };
 }
 const round = (v: number) => Math.round(v * 100) / 100;
+/** Android kennt für STL/3MF/OBJ keinen festen Dateityp und graut solche Dateien in der Auswahl aus –
+ *  dort daher alle Dateien zulassen und erst nach der Auswahl an der Endung prüfen. */
+const ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
 const X_AXIS = new Vector3(1, 0, 0),
   Y_AXIS = new Vector3(0, 1, 0),
   Z_AXIS = new Vector3(0, 0, 1);
@@ -558,7 +561,7 @@ export function FreeMode() {
           >
             {importing ? '⏳ Lese Datei …' : '📥 STL / 3MF / OBJ importieren (z. B. von MakerWorld)'}
           </button>
-          <input ref={importRef} type="file" accept=".stl,.3mf,.obj,model/stl,model/3mf" className="hidden" onChange={(e) => (importFile(e.target.files?.[0]), (e.target.value = ''))} />
+          <input ref={importRef} type="file" accept={ANDROID ? undefined : ".stl,.3mf,.obj"} className="hidden" onChange={(e) => (importFile(e.target.files?.[0]), (e.target.value = ''))} />
         </div>
         <p className="text-[11px] text-slate-500 mt-1.5">Tipp: Wähle zuerst das Teil aus (z. B. dein Schild) – der Import wird dann passend darauf gesetzt.</p>
       </div>
@@ -617,7 +620,7 @@ export function FreeMode() {
             📂 Laden
           </Button>
         </div>
-        <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => (loadProject(e.target.files?.[0]), (e.target.value = ''))} />
+        <input ref={fileRef} type="file" accept={ANDROID ? undefined : ".json,application/json"} className="hidden" onChange={(e) => (loadProject(e.target.files?.[0]), (e.target.value = ''))} />
       </div>
 
       {raster && (
