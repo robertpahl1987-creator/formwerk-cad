@@ -498,5 +498,23 @@ await (async () => {
   console.log(`${ok ? '✓' : '✗'} Mausohren an Platte: ${n} Ecken, Teil ${ears?.name ?? 'fehlt'}, wasserdicht ${ears?.stats.manifold}`);
 }
 
+// ---------------------------------------------------------------- Malen → 3MF + hohle Vase
+await (async () => {
+  const cube: ModelDef = { name: 'Würfel', params: [], source: 'custom', root: [{ type: 'cube', size: [20, 20, 20] }] };
+  const m = meshFromPolygons(buildParts(cube, {}, { tol: 0.2, fase: true }, { rx: 0, ry: 0 }).parts[0].polys);
+  const n = m.tri.length / 3;
+  const pc = new Uint8Array(n), ps = new Uint8Array(n);
+  pc[0] = 2; pc[1] = 3; pc[2] = 4; ps[3] = 1; ps[4] = 2;
+  const blob = await threeMf([{ name: 'W', parts: [{ name: 'W', slot: 1, color: '#fff', mesh: m, paintColor: pc, paintSupport: ps }] }], { title: 'W', bedSize: 256 });
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  const xml = await zip.file('3D/3dmodel.model')!.async('string');
+  checks++;
+  const ok = xml.includes('paint_color="8"') && xml.includes('paint_color="0C"') && xml.includes('paint_color="1C"') && xml.includes('paint_supports="4"') && xml.includes('paint_supports="8"');
+  if (!ok) fails++;
+  console.log(`${ok ? '✓' : '✗'} Malen: Farb- und Stützen-Bemalung im 3MF (Bambu/Orca-Kodierung)`);
+  const vase = TEMPLATES.find((x) => x.id === 'vase')!.model;
+  check('Vase hohl (Wand 2 mm) mit Waben', vase, { ...defaultValues(vase), wall: 2, muster: 3, H: 80 });
+})();
+
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);
 if (fails) process.exit(1);

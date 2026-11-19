@@ -9,6 +9,7 @@ import { saveFile } from '../platform/download';
 import { optimizePrint, type OptimizePlan } from '../mesh/optimize';
 import { myParts, useMyParts, type MyPart } from '../state/myParts';
 import { timeline, useTimeline, type Snapshot } from '../state/timeline';
+import { paint } from '../state/paint';
 import { adaptiveRanges, layerCount, LAYER_STEPS, mergeRanges, type LayerRange } from '../mesh/adaptive';
 import { freeBus } from '../state/freeBus';
 import type { FreePart } from '../cad/free';
@@ -648,7 +649,7 @@ export function ExportPanel() {
         files.push({ name: 'Montageanleitung.txt', data: guide() });
         done(await saveFile(`${base}_${b.plates.length}-platten.zip`, await zipFiles(files)), `${b.plates.length} Platten als 3MF`);
       } else {
-        const blob = await threeMf([{ name: m.name, parts: toExport(b.parts) }], { title: m.name, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile, layer: state.settings.layer, pauses: b.pauses, ranges: rangesFor(state), vase: m.templateId === 'vase' && Number(state.values.wall ?? 0) === 0 });
+        const blob = await threeMf([{ name: m.name, parts: toExport(b.parts).map((p, i) => ({ ...p, ...paint.forExport(b.parts, i) })) }], { title: m.name, bedSize: state.settings.bedSize, description: m.description, profile: state.settings.profile, layer: state.settings.layer, pauses: b.pauses, ranges: rangesFor(state), vase: m.templateId === 'vase' && Number(state.values.wall ?? 0) === 0 });
         done(await saveFile(`${base}.3mf`, blob), '3MF');
       }
     });

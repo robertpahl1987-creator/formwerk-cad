@@ -748,6 +748,8 @@ export function App() {
               onPick={(id, additive) => freeBus.send({ type: 'select', ids: id === null ? [] : [id], additive })}
               onTransform={(t) => freeBus.send({ type: 'transform', ...t })}
               tool={tools.tool}
+              paintable={!!b && display === b.parts && !b.pieces}
+              slotColors={Object.fromEntries(s.palette.map((f) => [f.slot, f.color]))}
               onFace={(n) => {
                 const o = layOnFace(n, state.orientation);
                 dispatch({ type: 'orientation', o });

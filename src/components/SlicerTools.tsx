@@ -5,6 +5,7 @@ import { slicerTools, useSlicerTools, type ToolPanel } from '../state/slicerTool
 import { useStore } from '../state/store';
 import { cx } from './ui';
 import { useState } from 'react';
+import { paint, usePaint, type PaintMode } from '../state/paint';
 
 /**
  * Werkzeugleiste wie in Bambu Studio / OrcaSlicer (links an der 3D-Ansicht):
@@ -16,7 +17,7 @@ export function SlicerToolbar() {
   const b = state.build;
   const m = state.model;
   if (!m || !b) return null;
-  const toggleTool = (tool: 'face' | 'measure') => slicerTools.set({ tool: t.tool === tool ? null : tool, panel: null });
+  const toggleTool = (tool: 'face' | 'measure' | 'paint') => slicerTools.set({ tool: t.tool === tool ? null : tool, panel: null });
   const togglePanel = (panel: ToolPanel) => slicerTools.set({ panel: t.panel === panel ? null : panel, tool: null });
   const autoOrient = () => {
     const merged = mergeMeshes(printable(b.parts).map((p) => p.mesh));
@@ -34,6 +35,7 @@ export function SlicerToolbar() {
     ['⇋', 'Spiegeln', t.panel === 'mirror', () => togglePanel('mirror')],
     ['✂️', 'Schneiden (mit Verbindern)', t.panel === 'cut', () => togglePanel('cut'), !!m.imports?.length],
     ['📏', 'Messen – zwei Punkte antippen', t.tool === 'measure', () => toggleTool('measure')],
+    ['🖌️', 'Malen: Farbe und Stützen aufs Modell pinseln', t.tool === 'paint', () => toggleTool('paint'), !!b.pieces],
     ['⧉', 'Kopien / auf Platte anordnen', t.panel === 'copies', () => togglePanel('copies')],
   ];
   return (
@@ -49,6 +51,7 @@ export function SlicerToolbar() {
         <div className="pointer-events-auto w-64 rounded-xl bg-[#161b22]/95 border border-[#30363d] p-3 backdrop-blur text-[12.5px] text-slate-200 space-y-2.5 shadow-xl">
           {t.tool === 'face' && <ToolHint title="Fläche aufs Bett legen" text="Tippe auf die Fläche, die unten auf der Druckplatte liegen soll. Das Teil wird sofort gedreht." />}
           {t.tool === 'measure' && <ToolHint title="Messen" text="Tippe nacheinander zwei Punkte auf dem Modell an – Abstand und X/Y/Z-Anteile erscheinen gelb. Dritter Tipp startet neu." />}
+          {t.tool === 'paint' && <PaintPanel />}
           {t.panel === 'scale' && <ScalePanel />}
           {t.panel === 'mirror' && <MirrorPanel />}
           {t.panel === 'cut' && <CutPanel />}
@@ -235,6 +238,56 @@ function CopiesPanel() {
           Anordnen
         </button>
       </div>
+    </>
+  );
+}
+
+function PaintPanel() {
+  const { state } = useStore();
+  const p = usePaint();
+  const pal = state.settings.palette;
+  const modes: [PaintMode, string][] = [
+    ['color', '🎨 Farbe'],
+    ['enforce', '➕ Stützen'],
+    ['block', '⛔ Keine Stützen'],
+    ['erase', '🧽 Radierer'],
+  ];
+  return (
+    <>
+      <div className="font-semibold text-white">Malen</div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {modes.map(([m, l]) => (
+          <button key={m} onClick={() => paint.set({ mode: m })} className={cx('h-8 rounded-md border text-[12px]', p.mode === m ? 'border-[#00ae42] bg-[#00ae42]/15 text-white' : 'border-[#30363d] text-slate-300')}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {p.mode === 'color' && (
+        <div className="flex flex-wrap gap-1.5">
+          {pal.map((f) => (
+            <button
+              key={f.slot}
+              title={f.name}
+              onClick={() => paint.set({ slot: f.slot })}
+              className={cx('h-8 px-2 rounded-md border text-[12px] flex items-center gap-1.5', p.slot === f.slot ? 'border-white text-white' : 'border-[#30363d] text-slate-400')}
+            >
+              <span className="w-3.5 h-3.5 rounded-full border border-black/30" style={{ background: f.color }} />
+              {f.slot}
+            </button>
+          ))}
+        </div>
+      )}
+      <div>
+        <div className="flex justify-between text-slate-400">
+          <span>Pinselgröße</span>
+          <span className="tabular-nums">{p.radius} mm</span>
+        </div>
+        <input type="range" min={0.5} max={25} step={0.5} value={p.radius} onChange={(e) => paint.set({ radius: Number(e.target.value) })} className="fw-range w-full" />
+      </div>
+      <p className="text-[11px] text-slate-500 leading-snug">Auf dem Modell ziehen = malen. Neben dem Modell ziehen = Ansicht drehen. Wird beim Export ins 3MF übernommen (Bambu Studio / OrcaSlicer). Ändert sich die Form, wird die Bemalung zurückgesetzt.</p>
+      <button className="w-full h-8 rounded-md border border-[#5c1d24] text-red-300 text-[12px]" onClick={() => paint.clear()}>
+        Bemalung löschen
+      </button>
     </>
   );
 }

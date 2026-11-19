@@ -6,6 +6,7 @@ import type { PartResult } from '../state/pipeline';
 import { getImported } from '../mesh/importMesh';
 import { supportColumns } from '../mesh/supports';
 import { printPreview } from '../state/printPreview';
+import { paint } from '../state/paint';
 import type { ViewOpts } from '../state/store';
 
 /** Frei-bauen-Teile zum Anklicken (Hüllboxen) und Anzeigen negativer Teile. */
@@ -30,7 +31,10 @@ interface Props {
   layer?: number;
   infill?: number;
   /** Werkzeug wie in Bambu Studio / OrcaSlicer: Fläche aufs Bett legen, Messen */
-  tool?: 'face' | 'measure' | null;
+  tool?: 'face' | 'measure' | 'paint' | null;
+  /** Malen erlaubt (normale Ansicht des aktuellen Modells) + Farben der Filament-Slots */
+  paintable?: boolean;
+  slotColors?: Record<number, string>;
   onFace?: (normal: [number, number, number]) => void;
   /** Vorschau der Schnittebene für das Schneiden-Werkzeug */
   cutPreview?: { axis: 0 | 1 | 2; frac: number } | null;
@@ -221,13 +225,13 @@ function printMaterial(o: { layer: number; infill: number; clip: THREE.Plane[]; 
 
 const fmt = (n: number) => `${(Math.round(n * 10) / 10).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mm`;
 
-export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu, onTransform, layer = 0.2, infill = 0.15, tool = null, onFace, cutPreview = null }: Props) {
+export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu, onTransform, layer = 0.2, infill = 0.15, tool = null, onFace, cutPreview = null, paintable = false, slotColors = {} }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const hud = useRef<HTMLDivElement>(null);
   const ctx = useRef<Ctx3 | null>(null);
   const lastVersion = useRef(-1);
-  const live = useRef({ overlay, onPick, onMenu, onTransform, tool, onFace });
-  live.current = { overlay, onPick, onMenu, onTransform, tool, onFace };
+  const live = useRef({ overlay, onPick, onMenu, onTransform, tool, onFace, paintable, slotColors });
+  live.current = { overlay, onPick, onMenu, onTransform, tool, onFace, paintable, slotColors };
   const measurePts = useRef<THREE.Vector3[]>([]);
 
   // Initialisierung
@@ -421,7 +425,38 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       c.gizmo.position.set(0, 0, 0);
       return false;
     };
+    // ---- Malen (Farbe / Stützen) ----
+    let painting = false;
+    const paintAt = (x: number, y: number) => {
+      ray.setFromCamera(ndc(x, y), camera);
+      const hitM = ray.intersectObjects(c.model.children.filter((o) => o.userData.solid), false)[0];
+      if (!hitM) return false;
+      const mesh = hitM.object as THREE.Mesh;
+      const cen = mesh.userData.centroids as Float32Array | undefined;
+      if (!cen) return true;
+      const r = paint.get().radius,
+        r2 = r * r,
+        p = hitM.point;
+      const tris: number[] = [];
+      for (let t = 0; t < cen.length / 3; t++) {
+        const dx = cen[t * 3] - p.x, dy = cen[t * 3 + 1] - p.y, dz = cen[t * 3 + 2] - p.z;
+        if (dx * dx + dy * dy + dz * dz <= r2) tris.push(t);
+      }
+      if (!tris.length && hitM.faceIndex !== undefined) tris.push(hitM.faceIndex);
+      paint.apply(mesh.userData.partIndex as number, tris, cen.length / 3);
+      return true;
+    };
     const onDown = (e: PointerEvent) => {
+      if (live.current.tool === 'paint' && live.current.paintable && e.button === 0) {
+        if (paintAt(e.clientX, e.clientY)) {
+          painting = true;
+          controls.enabled = false;
+          cv.setPointerCapture?.(e.pointerId);
+          e.stopImmediatePropagation();
+          down = null;
+          return;
+        }
+      }
       if (startDrag(e)) {
         down = null;
         return;
@@ -439,6 +474,10 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       }
     };
     const onMove = (e: PointerEvent) => {
+      if (painting) {
+        paintAt(e.clientX, e.clientY);
+        return;
+      }
       if (drag) return moveDrag(e);
       // Mauszeiger zeigt an, was man greifen kann
       if (e.pointerType === 'mouse' && !e.buttons && c.pivot && live.current.onTransform) {
@@ -453,6 +492,11 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       }
     };
     const onUp = (e: PointerEvent) => {
+      if (painting) {
+        painting = false;
+        controls.enabled = true;
+        return;
+      }
       if (drag) {
         endDrag();
         return;
@@ -588,7 +632,18 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     c.layerPlane.constant = print ? min[2] + (max[2] - min[2]) * printPreview.get() + 1e-3 : 1e6;
 
     const over = new THREE.Color(0xff4d4f);
+    const tagMesh = (m: THREE.Mesh, pi: number, arr: Float32Array, col: Float32Array) => {
+      m.userData.solid = true;
+      m.userData.partIndex = pi;
+      m.userData.baseCol = col.slice();
+      const cen = new Float32Array(arr.length / 3);
+      for (let t = 0; t < arr.length / 9; t++)
+        for (let k = 0; k < 3; k++) cen[t * 3 + k] = (arr[t * 9 + k] + arr[t * 9 + 3 + k] + arr[t * 9 + 6 + k]) / 3;
+      m.userData.centroids = cen;
+    };
+    let partIdx = -1;
     for (const part of parts) {
+      partIdx++;
       const { pos: P, tri } = part.mesh;
       const n = tri.length;
       if (part.role) {
@@ -625,7 +680,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       geo.computeVertexNormals();
       if (print) {
         const front = new THREE.Mesh(geo, printMaterial({ layer, infill, clip: pclip, vertexColors: true }));
-        front.userData.solid = true;
+        tagMesh(front, partIdx, arr, col);
         c.model.add(front);
         c.model.add(new THREE.Mesh(geo, printMaterial({ layer, infill, clip: pclip, color: base.clone().multiplyScalar(0.9), back: true })));
         continue;
@@ -644,7 +699,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
         polygonOffsetUnits: 1,
       });
       const solidMesh = new THREE.Mesh(geo, mat);
-      solidMesh.userData.solid = true;
+      tagMesh(solidMesh, partIdx, arr, col);
       c.model.add(solidMesh);
       if (view.section && !view.xray) {
         // Schnittfläche sichtbar machen: Rückseiten in Signalfarbe
@@ -705,6 +760,51 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       frame(c, 'iso');
     }
   }, [parts, view, modelVersion, layer, infill]);
+
+  // Bemalung anzeigen (bei jeder Änderung nur Farben neu setzen, kein Neuaufbau)
+  useEffect(() => {
+    const c = ctx.current;
+    if (!c) return;
+    const apply = () => {
+      const ps = paint.get();
+      const sc = live.current.slotColors;
+      const blue = new THREE.Color(0x4dabf7),
+        red = new THREE.Color(0xff6b6b),
+        tmp = new THREE.Color();
+      for (const o of c.model.children) {
+        if (!o.userData.solid) continue;
+        const m = o as THREE.Mesh;
+        const attr = m.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+        const base = m.userData.baseCol as Float32Array | undefined;
+        if (!attr || !base) continue;
+        const arr = attr.array as Float32Array;
+        arr.set(base);
+        if (live.current.paintable) {
+          const cc = ps.color.get(m.userData.partIndex),
+            ss = ps.support.get(m.userData.partIndex);
+          const n = arr.length / 9;
+          for (let t = 0; t < n; t++) {
+            const cv = cc?.[t],
+              sv = ss?.[t];
+            if (!cv && !sv) continue;
+            for (let v = 0; v < 3; v++) {
+              const o3 = t * 9 + v * 3;
+              tmp.setRGB(arr[o3], arr[o3 + 1], arr[o3 + 2]);
+              if (cv) tmp.set(sc[cv] ?? '#cccccc');
+              if (sv) tmp.lerp(sv === 1 ? blue : red, 0.65);
+              arr[o3] = tmp.r;
+              arr[o3 + 1] = tmp.g;
+              arr[o3 + 2] = tmp.b;
+            }
+          }
+        }
+        attr.needsUpdate = true;
+      }
+    };
+    if (paintable && parts) paint.sync(parts);
+    apply();
+    return paint.subscribe(apply);
+  }, [parts, view, paintable, layer, infill]);
 
   // Messen zurücksetzen, wenn das Werkzeug wechselt oder das Modell sich ändert
   useEffect(() => {

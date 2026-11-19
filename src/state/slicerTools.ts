@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react';
 
 export type ToolPanel = 'cut' | 'scale' | 'mirror' | 'copies' | null;
 interface ToolState {
-  tool: 'face' | 'measure' | null;
+  tool: 'face' | 'measure' | 'paint' | null;
   panel: ToolPanel;
   cut: { axis: 0 | 1 | 2; frac: number };
 }
