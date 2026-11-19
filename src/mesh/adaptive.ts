@@ -34,7 +34,7 @@ export function adaptiveRanges(m: Mesh, quality = 0.12, minH = 0.08, maxH = 0.28
     const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const len = Math.hypot(nx, ny, nz);
-    if (len < 1) continue; // winzige Dreiecke (Fläche < 0,5 mm²) ignorieren
+    if (len < 1e-9) continue; // entartete Dreiecke
     const az = Math.abs(nz / len);
     if (az > 0.995 || az < 0.05) continue; // waagerecht oder senkrecht: keine Treppenstufen
     const h = Math.min(maxH, Math.max(minH, quality / az));
