@@ -442,7 +442,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
         const dx = cen[t * 3] - p.x, dy = cen[t * 3 + 1] - p.y, dz = cen[t * 3 + 2] - p.z;
         if (dx * dx + dy * dy + dz * dz <= r2) tris.push(t);
       }
-      if (!tris.length && hitM.faceIndex !== undefined) tris.push(hitM.faceIndex);
+      if (!tris.length && hitM.faceIndex != null) tris.push(hitM.faceIndex);
       paint.apply(mesh.userData.partIndex as number, tris, cen.length / 3);
       return true;
     };
