@@ -377,7 +377,10 @@ function build(n: CadNode, ctx: Ctx): Geom[] {
     case 'scale': {
       const g = unionAll(children(n.children, ctx));
       const sv = v3(n.v, s, 'scale.v');
-      sv.forEach((x) => positive(x, 'Skalierungsfaktor'));
+      // negative Faktoren = Spiegeln (wie im Slicer); 0 wäre ein flaches, ungültiges Teil
+      sv.forEach((x) => {
+        if (!Number.isFinite(x) || Math.abs(x) < 1e-6) throw new BuildError(`Skalierungsfaktor darf nicht 0 sein (ist ${x})`);
+      });
       return g ? [T.scale(sv, g)] : [];
     }
     case 'text':
