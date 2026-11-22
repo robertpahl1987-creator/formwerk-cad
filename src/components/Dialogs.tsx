@@ -108,7 +108,7 @@ export function SettingsDialog() {
         <label className="block">
           <span className="text-[13px] text-slate-300">Meshy API-Key (Foto → echte 3D-Form)</span>
           <input type="password" autoComplete="off" value={ai.meshyKey ?? ''} onChange={(e) => setAi({ meshyKey: e.target.value.trim() })} placeholder="msy_… (meshy.ai → API)" className={field} />
-          <span className="block text-[11px] text-slate-500 mt-1">Für Figuren und organische Formen aus Fotos. Konto auf meshy.ai, Schlüssel unter „API“. Jedes Modell kostet Meshy-Credits.</span>
+          <span className="block text-[11px] text-slate-500 mt-1">Optional: für „Foto → echte 3D-Form“ direkt in der App. API-Schlüssel gibt es bei meshy.ai nur mit bezahltem Abo – kostenlos geht es über MakerWorld.</span>
         </label>
         <p className="text-[11px] text-slate-500">
           Schlüssel werden nur lokal in diesem Browser gespeichert und direkt an den gewählten Anbieter gesendet. Ohne KI arbeitet die App mit den eingebauten Vorlagen und der

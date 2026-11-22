@@ -51,3 +51,9 @@ export async function openApkDownload(): Promise<void> {
   if (isNativeApp()) await Browser.open({ url: APK_URL });
   else window.open(APK_URL, '_blank');
 }
+
+/** Externe Seite öffnen (in der App im In-App-Browser, sonst neuer Tab). */
+export async function openExternal(url: string): Promise<void> {
+  if (isNativeApp()) await Browser.open({ url });
+  else window.open(url, '_blank', 'noopener');
+}
