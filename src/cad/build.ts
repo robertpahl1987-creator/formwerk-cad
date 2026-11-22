@@ -55,7 +55,7 @@ function threadGeom(d: number, p: number, h: number, iso: boolean, chamfer: bool
   const { depth, r } = threadProfile(p, iso);
   const R = d / 2;
   const N = clamp(Math.round((Math.PI * d) / 0.5 / 8) * 8, 48, 160);
-  const rows = Math.max(2, Math.ceil(h / (p / 8)));
+  const rows = Math.max(2, Math.ceil(h / (p / 12)));
   const c = chamfer ? Math.min(depth, h / 4) : 0;
   const rad = (th: number, z: number) => {
     const phi = ((((z / p) + (left ? 1 : -1) * (th / (2 * Math.PI))) % 1) + 1) % 1;
@@ -103,7 +103,7 @@ function internalThreadGeom(d: number, p: number, h: number, iso: boolean, left:
   let N = clamp(Math.round((Math.PI * d) / 0.5 / 8) * 8, 48, 168);
   N = Math.ceil(N / 24) * 24;
   const fl = clamp(floor, 0, h - p);
-  const rowsIn = Math.max(2, Math.ceil((h - fl) / (p / 8)));
+  const rowsIn = Math.max(2, Math.ceil((h - fl) / (p / 12)));
   const outR = (th: number) => {
     if (odfn < 3) return Ro;
     const seg = (2 * Math.PI) / odfn;
