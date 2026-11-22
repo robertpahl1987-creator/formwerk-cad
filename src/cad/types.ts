@@ -129,6 +129,8 @@ export interface ModelDef {
   templateId?: string;
   /** Die Beschreibung, aus der das Modell entstanden ist (nachträglich bearbeitbar). */
   prompt?: string;
+  /** Aufgaben-Check der KI: jede Anforderung aus der Beschreibung und wie sie umgesetzt ist */
+  checklist?: { req: string; ok: boolean; how?: string }[];
   /**
    * Nachträgliche Änderungen im Druckbett-Koordinatensystem (nach dem Ablegen):
    * z. B. Dübellöcher und Steckzapfen aus der Baugruppe.

@@ -56,6 +56,24 @@ export function EditPanel() {
 
   return (
     <Section title="Beschreibung & Änderungen">
+      {m.checklist?.length ? (
+        <details className="rounded-lg border border-[#30363d] bg-[#0d1117] px-2.5 py-2" open={m.checklist.some((c) => !c.ok)}>
+          <summary className="text-[12px] text-slate-300 cursor-pointer">
+            ✅ Aufgaben-Check: {m.checklist.filter((c) => c.ok).length} von {m.checklist.length} umgesetzt
+          </summary>
+          <ul className="mt-1.5 space-y-1">
+            {m.checklist.map((c, i) => (
+              <li key={i} className="text-[12px] leading-snug flex gap-1.5">
+                <span className={c.ok ? 'text-[#3ddc84]' : 'text-amber-300'}>{c.ok ? '✓' : '!'}</span>
+                <span className="text-slate-200">
+                  {c.req}
+                  {c.how && <span className="block text-[11px] text-slate-500">{c.how}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       <label className="block">
         <span className="text-[12px] text-slate-400">Beschreibung (bearbeitbar)</span>
         <textarea

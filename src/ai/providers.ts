@@ -9,7 +9,7 @@
 import { extractJson, validateModel } from '../cad/validate';
 import type { ModelDef } from '../cad/types';
 import { capability } from '../platform/claude';
-import { repairPrompt, systemPrompt, userPrompt, type UserRequest } from './prompt';
+import { repairPrompt, reviewPrompt, systemPrompt, userPrompt, type UserRequest } from './prompt';
 
 export type ProviderId = 'auto' | 'anthropic' | 'claude' | 'gemini' | 'openai' | 'offline';
 
@@ -21,6 +21,10 @@ export interface AiSettings {
   geminiModel: string;
   openaiKey: string;
   openaiModel: string;
+  /** Detailgrad der KI-Modelle */
+  detail?: 'einfach' | 'normal' | 'hoch';
+  /** zweiter Durchgang: Modell gegen die Aufgabe prüfen und verfeinern */
+  review?: boolean;
 }
 
 export const DEFAULT_AI: AiSettings = {
@@ -193,22 +197,45 @@ export async function generateWithAi(req: UserRequest, settings: AiSettings, opt
     return callProvider(provider, settings, system, user, img, opts.signal);
   };
   opts.onStatus?.(`${PROVIDER_LABEL[provider]} konstruiert das Modell …`);
-  let raw = await call(userPrompt(req), opts.image);
-  let parsed: unknown;
+  const src = opts.image ? 'photo' : 'ai';
+  let raw = await call(userPrompt({ ...req, detail: req.detail ?? settings.detail }), opts.image);
+  let model: ModelDef | null = null;
   let errors: string[] = [];
   try {
-    parsed = extractJson(raw);
-    const v = validateModel(parsed, opts.image ? 'photo' : 'ai');
-    if (v.ok) return { model: v.model!, provider: PROVIDER_LABEL[provider], raw };
-    errors = v.errors;
+    const v = validateModel(extractJson(raw), src);
+    if (v.ok) model = v.model!;
+    else errors = v.errors;
   } catch (e) {
     errors = [(e as Error).message];
   }
-  opts.onStatus?.('Korrigiere KI-Antwort …');
-  raw = await call(repairPrompt(raw, errors));
-  const v2 = validateModel(extractJson(raw), opts.image ? 'photo' : 'ai');
-  if (!v2.ok) throw new Error(`KI-Modell ungültig:\n${v2.errors.slice(0, 6).join('\n')}`);
-  return { model: v2.model!, provider: PROVIDER_LABEL[provider], raw };
+  if (!model) {
+    opts.onStatus?.('Korrigiere KI-Antwort …');
+    raw = await call(repairPrompt(raw, errors));
+    const v2 = validateModel(extractJson(raw), src);
+    if (!v2.ok) throw new Error(`KI-Modell ungültig:\n${v2.errors.slice(0, 6).join('\n')}`);
+    model = v2.model!;
+  }
+  // Zweiter Durchgang: gegen die Aufgabe prüfen, fehlende Details ergänzen
+  if (settings.review !== false && !opts.signal?.aborted) {
+    try {
+      opts.onStatus?.('Prüfe das Modell gegen deine Aufgabe und verfeinere Details …');
+      const ms = Object.entries(req.measures)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => `- ${k}: ${v}`)
+        .join('\n');
+      const json = JSON.stringify({ name: model.name, description: model.description, checklist: model.checklist, params: model.params, root: model.root });
+      const raw2 = await call(reviewPrompt(req.text + (req.imageInfo ? `\nFOTO: ${req.imageInfo}` : ''), ms, json, req.detail ?? settings.detail));
+      const v3 = validateModel(extractJson(raw2), src);
+      if (v3.ok) {
+        model = v3.model!;
+        raw = raw2;
+      }
+    } catch (e) {
+      if (opts.signal?.aborted) throw e;
+      /* Prüfung fehlgeschlagen → erstes Modell behalten */
+    }
+  }
+  return { model, provider: PROVIDER_LABEL[provider], raw };
 }
 
 /** Einzelner Aufruf beim gewählten Anbieter (Text, optional Bild). */

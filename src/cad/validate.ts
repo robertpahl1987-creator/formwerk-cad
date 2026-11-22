@@ -224,7 +224,13 @@ export function validateModel(raw: unknown, source: ModelDef['source'] = 'ai'): 
   else checkNodes(root, 'root', known);
 
   if (errors.length) return { ok: false, errors: errors.slice(0, 25) };
-  return { ok: true, errors: [], model: { name, description, params, root: root as CadNode[], source } };
+  const checklist = Array.isArray(r.checklist)
+    ? (r.checklist as Record<string, unknown>[])
+        .filter((c) => c && typeof c.req === 'string' && c.req.trim())
+        .slice(0, 24)
+        .map((c) => ({ req: String(c.req).slice(0, 140), ok: c.ok !== false, how: typeof c.how === 'string' ? c.how.slice(0, 200) : undefined }))
+    : undefined;
+  return { ok: true, errors: [], model: { name, description, params, root: root as CadNode[], source, ...(checklist?.length ? { checklist } : {}) } };
 }
 
 /** Holt ein JSON-Objekt aus einer LLM-Antwort (auch wenn sie in ```json-Blöcken steckt). */

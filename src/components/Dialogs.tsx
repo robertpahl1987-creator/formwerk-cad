@@ -57,6 +57,21 @@ export function SettingsDialog() {
         </label>
         {insideClaude() && <p className="text-[12px] text-[#3ddc84]">In Claude geöffnet: „Automatisch“ nutzt Claude direkt – kein API-Key nötig.</p>}
         <label className="block">
+          <span className="text-[13px] text-slate-300">Detailgrad der KI-Modelle</span>
+          <select value={ai.detail ?? 'hoch'} onChange={(e) => setAi({ detail: e.target.value as 'einfach' | 'normal' | 'hoch' })} className={field}>
+            <option value="hoch">Hoch – möglichst realistisch, alle passenden Details</option>
+            <option value="normal">Normal – typische Funktionsdetails</option>
+            <option value="einfach">Einfach – schlicht, schnell gedruckt</option>
+          </select>
+        </label>
+        <label className="flex items-start gap-2 text-[13px] text-slate-300">
+          <input type="checkbox" className="mt-1" checked={ai.review !== false} onChange={(e) => setAi({ review: e.target.checked })} />
+          <span>
+            Zweiter Prüf-Durchgang
+            <span className="block text-[11.5px] text-slate-500">Die KI prüft ihr Modell Punkt für Punkt gegen deine Beschreibung und ergänzt Fehlendes. Genauer, dauert etwa doppelt so lange.</span>
+          </span>
+        </label>
+        <label className="block">
           <span className="text-[13px] text-slate-300">Claude API-Key (Anthropic)</span>
           <input type="password" autoComplete="off" value={ai.anthropicKey} onChange={(e) => setAi({ anthropicKey: e.target.value })} placeholder="sk-ant-… (console.anthropic.com)" className={field} />
         </label>
