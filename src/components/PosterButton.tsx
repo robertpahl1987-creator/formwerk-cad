@@ -74,7 +74,10 @@ export function PosterButton() {
     g.fillText('Formwerk CAD', 118, 92);
     // Titel
     g.fillStyle = '#ffffff';
-    g.font = '800 64px system-ui, sans-serif';
+    // Titel: erst kleiner schreiben, erst dann kürzen
+    let fs = 64;
+    g.font = `800 ${fs}px system-ui, sans-serif`;
+    while (g.measureText(m.name).width > W - 120 && fs > 44) g.font = `800 ${(fs -= 2)}px system-ui, sans-serif`;
     let title = m.name;
     while (g.measureText(title).width > W - 120 && title.length > 4) title = title.slice(0, -2);
     if (title !== m.name) title = title.trimEnd() + '…';
@@ -107,8 +110,11 @@ export function PosterButton() {
     }
     // Fußzeile
     g.fillStyle = '#8b949e';
-    g.font = '500 28px system-ui, sans-serif';
-    g.fillText('Selbst anpassen & drucken: ' + SHARE_BASE.replace(/^https:\/\//, '').replace(/\/$/, ''), 60, H - 50);
+    let ff = 28;
+    const foot = 'Selbst anpassen & drucken: ' + SHARE_BASE.replace(/^https:\/\//, '').replace(/\/$/, '');
+    g.font = `500 ${ff}px system-ui, sans-serif`;
+    while (g.measureText(foot).width > W - 120 && ff > 18) g.font = `500 ${(ff -= 1)}px system-ui, sans-serif`;
+    g.fillText(foot, 60, H - 50);
     const bl: Blob = await new Promise((res) => cv.toBlob((x) => res(x!), 'image/png'));
     setBlob(bl);
     setUrl(URL.createObjectURL(bl));
