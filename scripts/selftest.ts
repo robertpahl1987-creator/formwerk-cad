@@ -94,6 +94,17 @@ for (const t of TEMPLATES) {
   check(`${t.id} (Fasen an)`, t.model, v);
   check(`${t.id} (Fasen aus)`, t.model, v, undefined, undefined, undefined, false);
 }
+// In einem Stück gedruckte Gelenke: Teile dürfen sich nicht berühren (sonst verschmolzen)
+for (const [id, want] of [['scharnier', () => 2], ['kugelgelenk', () => 2], ['flexifisch', (v: Record<string, unknown>) => Number(v.n)]] as const) {
+  checks++;
+  const tm = TEMPLATES.find((t) => t.id === id)!.model;
+  const v = defaultValues(tm);
+  const st = analyzeMesh(meshFromPolygons(buildParts(tm, v, { tol: 0.2, fase: true }).parts[0].polys));
+  const n = want(v);
+  const ok = st.shells === n && st.openEdges === 0;
+  if (!ok) fails++;
+  console.log(`${ok ? '✓' : '✗'} ${id}: ${st.shells} getrennte Teile (erwartet ${n}), offen ${st.openEdges}`);
+}
 const box = TEMPLATES.find((t) => t.id === 'box')!.model;
 check('box Farbzonen', box, defaultValues(box), undefined, [{ z: 0, slot: 1 }, { z: 15, slot: 2 }]);
 for (const joint of ['steck', 'duebel', 'kleben'] as JointType[]) {

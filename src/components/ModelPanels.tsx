@@ -34,6 +34,7 @@ const g1 = (n: number) => n.toLocaleString('de-DE', { maximumFractionDigits: 1, 
 const hm = (min: number) => `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')} min`;
 
 // ---------------------------------------------------------------- Vorlagen
+const JOINTS = new Set(['scharnier', 'kugelgelenk', 'flexifisch', 'flexikette', 'spinner']);
 const AQUA = new Set(['mooskugel', 'garnelenhoehle', 'pflanzkorb', 'schlauchhalter', 'futterring']);
 
 export function Library() {
@@ -42,7 +43,8 @@ export function Library() {
     <>
     <MyPartsPanel />
     {[
-      { title: 'Vorlagen', list: TEMPLATES.filter((t) => !AQUA.has(t.id)) },
+      { title: 'Vorlagen', list: TEMPLATES.filter((t) => !AQUA.has(t.id) && !JOINTS.has(t.id)) },
+      { title: '🦾 Gelenke & beweglich', list: TEMPLATES.filter((t) => JOINTS.has(t.id)) },
       { title: '🐟 Aquaristik', list: TEMPLATES.filter((t) => AQUA.has(t.id)) },
     ].map((g) => (
     <div key={g.title} className="mb-4">

@@ -843,6 +843,229 @@ export const TEMPLATES: Template[] = [
       ];
     })(),
   ),
+
+  // ------------------------------------------------------------ Gelenke & beweglich
+  t(
+    'scharnier',
+    'Scharnier (in einem Stück gedruckt)',
+    '🚪',
+    ['scharnier', 'gelenk', 'klappe', 'tür', 'tuer', 'print in place', 'drehgelenk', 'hinge', 'deckelscharnier'],
+    'Fertig bewegliches Scharnier, in einem Stück gedruckt: Kegelzapfen (45°) zwischen den Gelenkaugen halten es zusammen – ohne Stift, ohne Stützen. Mit Senkbohrungen.',
+    [
+      num('L', 'Länge', 60, 25, 200, 1, { role: 'length' }),
+      num('W', 'Flügelbreite', 25, 10, 80, 1, { role: 'width' }),
+      num('t', 'Flügelstärke', 3, 2, 6, 0.1, { role: 'height' }),
+      num('D', 'Gelenk-Ø', 8, 6, 16, 0.5),
+      cnt('k', 'Gelenkaugen', 5, 3, 9, { hint: 'ungerade Zahl' }),
+      num('g', 'Spiel im Gelenk', 0.4, 0.25, 0.8, 0.05, { hint: 'Größer, falls es nach dem Druck klemmt' }),
+      flag('holes', 'Schraubenlöcher', true),
+      num('hd', 'Schrauben-Ø', 3.5, 2, 6, 0.1, { role: 'hole' }),
+    ],
+    (() => {
+      const kl = '(L - (k - 1)*g)/k';
+      const xi = `-L/2 + i*(${kl} + g)`;
+      const rc = 'D/2 - 1.2';
+      const side = '(i % 2 == 0 ? -1 : 1)';
+      const knuckle: CadNode = {
+        type: 'for',
+        var: 'i',
+        from: 0,
+        to: 'k - 1',
+        children: [
+          diff(
+            uni(
+              T([xi, 0, 'D/2'], R([0, 90, 0], { type: 'cylinder', r: 'D/2', h: kl })),
+              // Kegelzapfen rechts (nicht beim letzten Auge)
+              {
+                type: 'if',
+                cond: 'i < k - 1',
+                then: [T([`${xi} + ${kl} - 0.01`, 0, 'D/2'], R([0, 90, 0], { type: 'cylinder', r1: rc, r2: 0.3, h: `${rc} - 0.3` }))],
+              },
+              // Steg zum eigenen Flügel
+              T([`${xi} + ${kl}/2`, `${side}*(D/2 + g + 0.5)/2`, 't/2'], { type: 'cube', size: [`${kl}`, 'D/2 + g + 0.5', 't'], center: true }),
+            ),
+            // Kegel-Aufnahme links (nicht beim ersten Auge) – zuletzt abziehen, damit der Steg sie nicht füllt
+            {
+              type: 'if',
+              cond: 'i > 0',
+              then: [T([`${xi} - 0.01`, 0, 'D/2'], R([0, 90, 0], { type: 'cylinder', r1: `${rc} + 0.414*g`, r2: '0.3 + 0.414*g', h: `${rc} - 0.3` }))],
+            },
+          ),
+        ],
+      };
+      const leaf = (sgn: 1 | -1): CadNode =>
+        diff(
+          T([0, `${sgn}*(D/2 + g + W/2)`, 't/2'], { type: 'roundedCube', size: ['L', 'W', 't'], r: 'min(1, t/3)', center: true }),
+          {
+            type: 'if',
+            cond: 'holes',
+            then: [-1, 1].map((sx) => T([`${sx}*L/4`, `${sgn}*(D/2 + g + W/2)`, 0], ...countersunkHole('hd', 'hd*2', 't', '3*t', 'true'))),
+          },
+        );
+      // Flügel A gehört zu den geraden Augen (y < 0), Flügel B zu den ungeraden (y > 0)
+      return [
+        uni(leaf(-1), { type: 'for', var: 'i', from: 0, to: 'k - 1', step: 2, children: (knuckle as { children: CadNode[] }).children }),
+        uni(leaf(1), { type: 'for', var: 'i', from: 1, to: 'k - 1', step: 2, children: (knuckle as { children: CadNode[] }).children }),
+      ];
+    })(),
+  ),
+  t(
+    'kugelgelenk',
+    'Kugelgelenk (Kugel + Pfanne)',
+    '🦴',
+    ['kugelgelenk', 'gelenk', 'kugel', 'pfanne', 'halterung', 'kamerahalter', 'schwenkbar', 'ball joint', 'drehbar'],
+    'Kugel auf Stiel und geschlitzte Pfanne zum Einschnappen – für schwenkbare Halter (Kamera, Lampe, Handy). Beide Teile mit Grundplatte und Senkbohrungen, ohne Stützen druckbar.',
+    [
+      num('kd', 'Kugel-Ø', 16, 8, 40, 0.5, { role: 'width' }),
+      num('sl', 'Stiel-Länge', 15, 4, 60, 0.5, { role: 'height' }),
+      num('P', 'Grundplatte', 30, 16, 80, 1, { role: 'length' }),
+      num('wall', 'Pfannen-Wand', 3, 2, 6, 0.1, { role: 'wall' }),
+      num('lip', 'Einschnapp-Rand', 0.28, 0.15, 0.4, 0.01, { unit: '× Ø', hint: 'Wie weit die Pfanne über die Kugelmitte greift: mehr = fester' }),
+      cnt('slits', 'Schlitze', 4, 2, 8),
+      flag('holes', 'Schraubenlöcher', true),
+    ],
+    (() => {
+      const plate = (x: string): CadNode =>
+        T(
+          [x, 0, 0],
+          diff(rrect('P', 'P', 4, 4), {
+            type: 'if',
+            cond: 'holes',
+            then: [-1, 1].map((sx) => T([`${sx}*(P/2 - 5)`, `${sx}*(P/2 - 5)`, 0], ...countersunkHole('3.5', '7', '4', '12', 'true'))),
+          }),
+        );
+      const zb = '4 + sl + kd/2';
+      return [
+        // Kugel auf Stiel, mit 45°-Kegel unter der Kugel
+        uni(
+          plate('0'),
+          // Stiel bis zur Kugelmitte (sauberer Schnitt statt Berührung am Pol)
+          T([0, 0, 3.99], { type: 'cylinder', d: 'kd*0.5', h: 'sl + kd/2 + 0.01' }),
+          // 45°-Stützkegel, leicht in die Kugel geschoben (nicht tangential)
+          T([0, 0, `${zb} - 0.607*kd/2 - 0.207*kd/2`], { type: 'cylinder', r1: 'kd*0.25', r2: '0.707*kd/2', h: '0.207*kd/2' }),
+          T([0, 0, zb], { type: 'sphere', r: 'kd/2', fn: 48 }),
+        ),
+        // Pfanne
+        uni(
+          plate('P + 10'),
+          T(
+            ['P + 10', 0, 3.99],
+            diff(
+              { type: 'cylinder', d: 'kd + 2*wall', h: `kd/2 + 1 + kd*lip + 0.01` },
+              T([0, 0, 'kd/2 + 1 - 0.01'], { type: 'sphere', r: 'kd/2 + tol', fn: 48 }),
+              {
+                type: 'for',
+                var: 'i',
+                from: 0,
+                to: 'slits - 1',
+                children: [R([0, 0, 0], { type: 'rotate', a: [0, 0, 'i*360/slits'], children: [T(['kd/2 + wall/2', 0, 'kd/2 + 1 + kd*lip/2 + 1'], { type: 'cube', size: ['wall*2 + 2', 1.4, 'kd*lip + kd*0.3 + 2'], center: true })] })],
+              },
+            ),
+          ),
+        ),
+      ];
+    })(),
+  ),
+  t(
+    'flexifisch',
+    'Flexi-Fisch (beweglich, in einem Stück)',
+    '🐠',
+    ['flexi', 'fisch', 'flexifisch', 'beweglich', 'gelenkig', 'print in place', 'spielzeug', 'gelenkfigur', 'flexi fisch', 'schlange'],
+    'Gelenkiger Fisch, fertig beweglich aus dem Drucker: jedes Glied hängt mit einem Doppelkegel-Zapfen (45°, ohne Stützen) im nächsten. Anzahl Glieder, Größe und Spiel einstellbar.',
+    [
+      cnt('n', 'Glieder', 7, 3, 14),
+      num('Ls', 'Gliedlänge', 14, 10, 30, 0.5, { role: 'length' }),
+      num('W', 'Breite', 26, 14, 60, 0.5, { role: 'width' }),
+      num('H', 'Höhe', 8, 6, 15, 0.5, { role: 'height' }),
+      num('g', 'Spiel in den Gelenken', 0.4, 0.25, 0.7, 0.05, { hint: 'Größer, falls Glieder zusammenkleben' }),
+    ],
+    (() => {
+      const r = 2.6;
+      const re = `${r} - 1.2`;
+      const R2 = `${r} + 1.414*g + 1.6`;
+      const xk = 'k*Ls';
+      const xn = '(k + 1)*Ls';
+      const wk = `max(W*(0.42 + 0.58*sin(180*(k + 0.7)/(n + 0.6))), 2*(${R2}) + 3)`;
+      // Zapfen (Doppelkegel) und passende Aufnahme als Rotationsprofile
+      const pin: CadNode = {
+        type: 'revolve',
+        fn: 48,
+        shape: { type: 'polygon', points: [[0, 0], [re, 0], [re, 'H/2 - 1.2'], [r, 'H/2'], [re, 'H/2 + 1.2'], [re, 'H'], [0, 'H']] },
+      };
+      const hole: CadNode = {
+        type: 'revolve',
+        fn: 48,
+        shape: {
+          type: 'polygon',
+          points: [[0, -1], [`${re} + g`, -1], [`${re} + g`, 'H/2 - 1.2 - 0.414*g'], [`${r} + 1.414*g`, 'H/2'], [`${re} + g`, 'H/2 + 1.2 + 0.414*g'], [`${re} + g`, 'H + 1'], [0, 'H + 1']],
+        },
+      };
+      // Keil-Ausschnitt für den Hals (±25° Bewegung)
+      const wedge: CadNode = {
+        type: 'extrude',
+        h: 'H + 2',
+        shape: { type: 'polygon', points: [[0, 0], [`2*(${R2}) + 4`, `-(2*(${R2}) + 4)*1.6`], [`2*(${R2}) + 4`, `(2*(${R2}) + 4)*1.6`]] },
+      };
+      const bodyStart = `${xk} + ${R2} + g`;
+      return [
+        {
+          type: 'for',
+          var: 'k',
+          from: 0,
+          to: 'n - 1',
+          children: [
+            diff(
+              uni(
+                // Körper des Glieds (beim Kopf länger und vorn rund)
+                {
+                  type: 'if',
+                  cond: 'k < n - 1',
+                  then: [T([`(${bodyStart} + ${xn})/2`, 0, 0], rrect(`${xn} - (${bodyStart}) + 0.01`, wk, `min(${wk}/2 - 0.5, 3)`, 'H'))],
+                  else: [T([`${bodyStart} + Ls*0.8`, 0, 0], rrect('Ls*1.6', wk, `${wk}/2 - 0.01`, 'H'))],
+                },
+                // Gelenkscheibe vorn
+                { type: 'if', cond: 'k < n - 1', then: [T([xn, 0, 0], { type: 'cylinder', r: R2, h: 'H' })] },
+                // Zapfen + Hals hinten
+                {
+                  type: 'if',
+                  cond: 'k > 0',
+                  then: [T([xk, 0, 0], pin), T([`${xk} + (${R2} + g + 0.6)/2`, 0, 'H/2'], { type: 'cube', size: [`${R2} + g + 0.6`, r, 'H'], center: true })],
+                },
+                // Schwanzflosse
+                {
+                  type: 'if',
+                  cond: 'k == 0',
+                  then: [
+                    {
+                      type: 'extrude',
+                      h: 'H*0.6',
+                      shape: {
+                        type: 'polygon',
+                        points: [
+                          [`${bodyStart} + 1`, `-${wk}*0.3`],
+                          [`${bodyStart} + 1`, `${wk}*0.3`],
+                          [`${bodyStart} - W*0.55`, 'W*0.42'],
+                          [`${bodyStart} - W*0.35`, 0],
+                          [`${bodyStart} - W*0.55`, '-W*0.42'],
+                        ],
+                      },
+                    },
+                  ],
+                },
+              ),
+              { type: 'if', cond: 'k < n - 1', then: [T([xn, 0, 0], hole), T([xn, 0, -1], wedge)] },
+              // Augen
+              {
+                type: 'if',
+                cond: 'k == n - 1',
+                then: [-1, 1].map((sy) => T([`${bodyStart} + Ls*1.05`, `${sy}*${wk}*0.22`, -1], { type: 'cylinder', d: `max(2, ${wk}*0.12)`, h: 'H + 2' })),
+              },
+            ),
+          ],
+        },
+      ];
+    })(),
+  ),
   // ------------------------------------------------------------ Aquaristik
   t(
     'mooskugel',
