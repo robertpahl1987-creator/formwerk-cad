@@ -10,6 +10,7 @@ import { optimizePrint, type OptimizePlan } from '../mesh/optimize';
 import { myParts, useMyParts, type MyPart } from '../state/myParts';
 import { timeline, useTimeline, type Snapshot } from '../state/timeline';
 import { paint } from '../state/paint';
+import { makeShareLink } from '../platform/share';
 import { adaptiveRanges, layerCount, LAYER_STEPS, mergeRanges, type LayerRange } from '../mesh/adaptive';
 import { freeBus } from '../state/freeBus';
 import type { FreePart } from '../cad/free';
@@ -1162,5 +1163,43 @@ export function AdhesionPanel() {
         </>
       )}
     </Section>
+  );
+}
+
+// ---------------------------------------------------------------- Teilen per Link
+export function ShareButton() {
+  const { state, dispatch } = useStore();
+  const [link, setLink] = useState<string | null>(null);
+  const m = state.model;
+  if (!m) return null;
+  const share = async () => {
+    try {
+      const url = await makeShareLink(m, state.values);
+      setLink(url);
+      const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+      if (nav.share && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
+        await nav.share({ title: `Formwerk: ${m.name}`, text: `Schau dir mein 3D-Druck-Modell „${m.name}“ an – Maße kannst du selbst anpassen:`, url }).catch(() => undefined);
+      } else {
+        await navigator.clipboard?.writeText(url).catch(() => undefined);
+        dispatch({ type: 'toast', kind: 'ok', text: 'Link kopiert – z. B. in WhatsApp einfügen' });
+      }
+    } catch (e) {
+      dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
+    }
+  };
+  return (
+    <div className="px-4 pt-3 space-y-1.5">
+      <Button className="w-full h-9 text-[12.5px]" onClick={share}>
+        🔗 Modell teilen (Link)
+      </Button>
+      {link && (
+        <input
+          readOnly
+          value={link}
+          onFocus={(e) => e.currentTarget.select()}
+          className="w-full h-8 rounded-md bg-[#0d1117] border border-[#30363d] px-2 text-[11px] text-slate-400"
+        />
+      )}
+    </div>
   );
 }

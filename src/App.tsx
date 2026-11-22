@@ -1,7 +1,7 @@
 import { Component, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { repairWithAi } from './ai/providers';
 import { CodeDialog, SettingsDialog } from './components/Dialogs';
-import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, AdhesionPanel, HistoryPanel, LayersPanel, ObjectList, OptimizePanel, ParamPanel, PrintCheck, SaveToMyParts, SplitPanel, ToleranceCalibration } from './components/ModelPanels';
+import { ColorPanel, EmptyState, ExportPanel, Library, MaterialPanel, AdhesionPanel, HistoryPanel, LayersPanel, ObjectList, OptimizePanel, ParamPanel, PrintCheck, SaveToMyParts, ShareButton, SplitPanel, ToleranceCalibration } from './components/ModelPanels';
 import { ContextMenu } from './components/ContextMenu';
 import { AssemblyPanel, PlateBar } from './components/AssemblyPanel';
 import { PlateJobPanel, usePacked } from './components/PlateJobPanel';
@@ -16,6 +16,8 @@ import { freeBus, useFreeSnapshot } from './state/freeBus';
 import { FreeMode } from './components/FreeMode';
 import { LithoMode } from './components/LithoMode';
 import { CloudPanel } from './components/CloudPanel';
+import { Gallery } from './components/Gallery';
+import { readShareHash } from './platform/share';
 import { PhotoMode } from './components/PhotoMode';
 import { abortRef, TextMode } from './components/TextMode';
 import { Button, cx, SliderRow, useMedia } from './components/ui';
@@ -228,6 +230,7 @@ function PanelContent() {
       {/* ---------- Schritt 1: Erstellen (Inhalte bleiben eingehängt, damit nichts verloren geht) ---------- */}
       <div className={step === 'create' ? '' : 'hidden'}>
         <Welcome />
+        <Gallery />
         <CloudPanel />
         <div className="px-4 pt-4 pb-4">
           <div className="text-[12px] text-slate-400 mb-2">Wie möchtest du dein Teil erstellen?</div>
@@ -315,6 +318,7 @@ function PanelContent() {
           <AdhesionPanel />
           <ExportPanel />
           <SaveToMyParts />
+          <ShareButton />
           <PlateJobPanel />
           <AssemblyPanel />
           <div className="px-4 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Erweitert (optional)</div>
@@ -614,6 +618,23 @@ export function App() {
   const importVer = useSyncExternalStore(subscribeImports, importVersion, importVersion);
   useEffect(() => {
     void loadImported();
+  }, []);
+  // Geteilter Link (#m=…): Modell öffnen
+  useEffect(() => {
+    if (!location.hash.includes('m=')) return;
+    readShareHash(location.hash)
+      .then((r) => {
+        if (!r) return;
+        dispatch({ type: 'setModel', model: r.model, values: r.values });
+        if (r.model.templateId === 'frei') {
+          freeBus.send({ type: 'load', parts: (r.model.freeParts as never[]) ?? [] });
+          dispatch({ type: 'mode', mode: 'free' });
+        }
+        dispatch({ type: 'toast', kind: 'ok', text: `Geteiltes Modell „${r.model.name}“ geöffnet – anpassen und drucken` });
+      })
+      .catch((e) => dispatch({ type: 'toast', kind: 'err', text: (e as Error).message }))
+      .finally(() => history.replaceState(null, '', location.pathname + location.search));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Zu groß fürs Druckbett → automatisch auf mehrere Platten teilen (mit Verbindern).

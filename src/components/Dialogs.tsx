@@ -7,6 +7,7 @@ import { APK_URL, isNativeApp } from '../platform/native';
 import { useStore } from '../state/store';
 import { Button, NumberInput, cx } from './ui';
 import { ToleranceCalibration } from './ModelPanels';
+import { PRINTERS, printerById } from '../state/printers';
 import { cloudList, cloudToken } from '../platform/cloud';
 
 function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -112,6 +113,7 @@ export function SettingsDialog() {
       <p className="text-[11px] text-slate-500">App-Stand: {new Date(__BUILD__).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</p>
       <section className="space-y-3 pt-2 border-t border-[#21262d]">
         <h3 className="text-[11px] uppercase tracking-wider text-slate-500 pt-2">Drucker</h3>
+        <PrinterSelect />
         <ToleranceCalibration />
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
@@ -126,23 +128,6 @@ export function SettingsDialog() {
             <span className="text-[13px] text-slate-300">Kritischer Überhang</span>
             <NumberInput value={state.settings.overhangDeg} onChange={(v) => v && dispatch({ type: 'settings', patch: { overhangDeg: v } })} min={20} max={80} step={1} unit="°" />
           </label>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            ['Bambu P1S/X1/P1P', 256, 256],
-            ['Bambu A1', 256, 256],
-            ['Bambu A1 mini', 180, 180],
-            ['Prusa MK4', 250, 210],
-            ['Ender 3', 220, 250],
-          ].map(([n, s, h]) => (
-            <button
-              key={n as string}
-              onClick={() => dispatch({ type: 'settings', patch: { bedSize: s as number, bedHeight: h as number } })}
-              className="text-[11px] px-2.5 py-1 rounded-full border border-[#30363d] text-slate-400 hover:text-white hover:border-[#00ae42]"
-            >
-              {n}
-            </button>
-          ))}
         </div>
       </section>
     </Modal>
@@ -279,5 +264,37 @@ function CloudSettings() {
       {msg && <p className="text-[12px] text-slate-300">{msg}</p>}
       <p className="text-[11px] text-slate-500">Der Schlüssel bleibt nur auf diesem Gerät gespeichert.</p>
     </section>
+  );
+}
+
+/** Drucker wählen – setzt Bauraum und zeigt den passenden Slicer an. */
+export function PrinterSelect({ compact }: { compact?: boolean }) {
+  const { state, dispatch } = useStore();
+  const cur = printerById(state.settings.printer);
+  const vendors = [...new Set(PRINTERS.map((p) => p.vendor))];
+  return (
+    <label className="block">
+      {!compact && <span className="text-[13px] text-slate-300">Mein Drucker</span>}
+      <select
+        value={state.settings.printer ?? 'bambu-p1s'}
+        onChange={(e) => {
+          const p = printerById(e.target.value);
+          dispatch({ type: 'settings', patch: { printer: p.id, ...(p.bed ? { bedSize: p.bed, bedHeight: p.height } : {}) } });
+          if (p.bed) dispatch({ type: 'toast', kind: 'ok', text: `${p.name}: Bauraum ${p.bed} × ${p.bed} × ${p.height} mm – Dateien für ${p.slicer}` });
+        }}
+        className="mt-1 w-full h-10 rounded-md bg-[#0d1117] border border-[#30363d] focus:border-[#00ae42] outline-none px-2 text-sm text-slate-100"
+      >
+        {vendors.map((v) => (
+          <optgroup key={v} label={v}>
+            {PRINTERS.filter((p) => p.vendor === v).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      {!compact && <span className="text-[11px] text-slate-500">Slicer: {cur.slicer}. 3MF öffnet sich in Bambu Studio, OrcaSlicer, PrusaSlicer und Creality Print.</span>}
+    </label>
   );
 }

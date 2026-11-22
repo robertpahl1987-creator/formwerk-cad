@@ -17,6 +17,7 @@ import { runPipeline } from '../src/state/pipeline';
 import { DEFAULT_HOLLOW } from '../src/cad/build';
 import { PROFILES } from '../src/mesh/mesh';
 import { optimizePrint } from '../src/mesh/optimize';
+import { makeShareLink, readShareHash } from '../src/platform/share';
 import { earPoints } from '../src/mesh/ears';
 import { adaptiveRanges, mergeRanges, layerCount } from '../src/mesh/adaptive';
 import { layOnFace } from '../src/state/slicerTools';
@@ -514,6 +515,26 @@ await (async () => {
   console.log(`${ok ? '✓' : '✗'} Malen: Farb- und Stützen-Bemalung im 3MF (Bambu/Orca-Kodierung)`);
   const vase = TEMPLATES.find((x) => x.id === 'vase')!.model;
   check('Vase hohl (Wand 2 mm) mit Waben', vase, { ...defaultValues(vase), wall: 2, muster: 3, H: 80 });
+})();
+
+// ---------------------------------------------------------------- Teilen per Link
+await (async () => {
+  checks++;
+  try {
+    const t = TEMPLATES.find((x) => x.id === 'vase')!;
+    const v = { ...defaultValues(t.model), H: 123 };
+    const l1 = await makeShareLink(structuredClone(t.model), v);
+    const r1 = await readShareHash(new URL(l1).hash);
+    const fm = freeToModel([{ id: 1, kind: 'quader', name: 'Block', hole: false, slot: 1, pos: [0, 0, 5], rot: [0, 0, 0], size: [30, 20, 10], e: {} }])!;
+    const l2 = await makeShareLink(fm, {});
+    const r2 = await readShareHash(new URL(l2).hash);
+    const ok = r1?.model.templateId === 'vase' && r1.values.H === 123 && l1.length < 400 && JSON.stringify(r2?.model.root) === JSON.stringify(fm.root);
+    if (!ok) fails++;
+    console.log(`${ok ? '✓' : '✗'} Teilen per Link: Vorlage ${l1.length} Zeichen, eigenes Modell ${l2.length} Zeichen, zurückgelesen ${ok}`);
+  } catch (e) {
+    fails++;
+    console.log(`✗ Teilen per Link: ${(e as Error).message}`);
+  }
 })();
 
 console.log(`\n${checks - fails} von ${checks} Prüfungen bestanden.`);

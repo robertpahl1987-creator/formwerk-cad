@@ -57,6 +57,8 @@ export interface Settings {
   adaptive?: boolean;
   /** Mausohren-Durchmesser (0 = aus) */
   ears?: number;
+  /** gewählter Drucker (Profil-ID) */
+  printer?: string;
 }
 
 export interface ViewOpts {
