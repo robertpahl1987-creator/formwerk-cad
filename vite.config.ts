@@ -18,6 +18,8 @@ export default defineConfig({
   define: { __BUILD__: JSON.stringify(BUILD) },
   build: {
     target: 'es2022',
+    // FW_DEBUG=1: unminifiziert (nur für den Test-Build auf preview-dist)
+    minify: process.env.FW_DEBUG ? false : 'esbuild',
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
