@@ -47,6 +47,31 @@ const countersunkHole = (d: string, head: string, top: string, through: string, 
   },
 ];
 
+
+/** Kugelschale (Halbkugel, Rand auf z=0, Öffnung unten) als Rotationsprofil – ohne Boolesche Operationen. */
+const domeShell = (R: string, w: string, K = 24): CadNode => {
+  const outer: [string, string][] = [];
+  const inner: [string, string][] = [];
+  for (let i = 0; i <= K; i++) {
+    const a = (90 * i) / K;
+    const c = i === K ? '0' : `cos(${a})`;
+    outer.push([i === K ? '0' : `(${R})*${c}`, `(${R})*sin(${a})`]);
+  }
+  for (let i = K; i >= 0; i--) {
+    const a = (90 * i) / K;
+    inner.push([i === K ? '0' : `(${R} - ${w})*cos(${a})`, `(${R} - ${w})*sin(${a})`]);
+  }
+  return { type: 'revolve', fn: 96, shape: { type: 'polygon', points: [...outer, ...inner] } };
+};
+/** Ring von n radialen Löchern (Polwinkel von oben gemessen) durch eine Kugelschale mit Mittelpunkt im Ursprung. */
+const sphereHoles = (R: string, w: string, d: string, n: string, polar: number, offset: string | number = 0): CadNode => ({
+  type: 'for',
+  var: 'i',
+  from: 0,
+  to: `${n} - 1`,
+  children: [{ type: 'rotate', a: [0, polar, `i*360/(${n}) + ${offset}`], children: [T([0, 0, `${R} - ${w}/2`], { type: 'cylinder', d, h: `4*${w} + 4`, center: true })] }],
+});
+
 export interface Template {
   id: string;
   name: string;
@@ -818,6 +843,229 @@ export const TEMPLATES: Template[] = [
       ];
     })(),
   ),
+  // ------------------------------------------------------------ Aquaristik
+  t(
+    'mooskugel',
+    'Mooskugel zum Verschrauben',
+    '🟢',
+    ['mooskugel', 'moos', 'moosball', 'aquarium', 'aquaristik', 'kugel', 'garnelen', 'schraubkugel', 'moos kugel'],
+    'Hohle Kugel aus zwei Hälften mit Schraubgewinde – Moos hineinlegen, zuschrauben, fertig. Große Löcher, damit Moos herauswächst und Fische nicht hängen bleiben. Kuppel nach oben drucken (PETG); bei großen Kugeln Baumstützen innen.',
+    [
+      num('D', 'Kugel-Ø', 60, 35, 140, 1, { role: 'width' }),
+      num('wall', 'Wandstärke', 2, 1.2, 4, 0.1, { role: 'wall' }),
+      num('hd', 'Loch-Ø', 10, 4, 22, 0.5, { role: 'hole', hint: 'Groß genug, damit kleine Fische nicht stecken bleiben' }),
+      cnt('n', 'Löcher pro Reihe', 6, 3, 12),
+      flag('top', 'Loch oben', true),
+      num('p', 'Gewinde-Steigung', 3, 2, 5, 0.25, { group: 'Gewinde' }),
+      num('thl', 'Gewindelänge', 6, 4, 12, 0.5, { group: 'Gewinde' }),
+      num('gap', 'Abstand der Hälften', 10, 4, 30, 1, { group: 'Anordnung' }),
+    ],
+    (() => {
+      const dm = 'D - 2*wall - 2*tol - 1.5';
+      const ct = `(D - (${dm}))/2`;
+      const dome = diff(
+        domeShell('D/2', 'wall'),
+        sphereHoles('D/2', 'wall', 'hd', 'n', 35),
+        sphereHoles('D/2', 'wall', 'hd', 'n', 65, '180/n'),
+        { type: 'if', cond: 'top', then: [T([0, 0, 'D/2 - wall/2'], { type: 'cylinder', d: 'hd', h: '4*wall + 4', center: true })] },
+      );
+      return [
+        // Hälfte mit Außengewinde
+        uni(
+          diff(
+            { type: 'thread', d: dm, pitch: 'p', h: 'thl', chamfer: true },
+            T([0, 0, -1], { type: 'cylinder', d: `${dm} - 1.25*p - 2*wall`, h: 'thl + 2' }),
+          ),
+          T(
+            [0, 0, 'thl - 0.01'],
+            diff(
+              { type: 'cylinder', r1: `(${dm})/2 - 0.3`, r2: 'D/2', h: ct },
+              T([0, 0, -0.01], { type: 'cylinder', r1: `(${dm})/2 - 0.62*p - wall`, r2: 'D/2 - wall', h: `${ct} + 0.02` }),
+            ),
+          ),
+          T([0, 0, `thl + ${ct} - 0.02`], dome),
+        ),
+        // Hälfte mit Innengewinde
+        T(
+          ['D + gap', 0, 0],
+          uni(
+            { type: 'thread', internal: true, d: `${dm} + 2*tol`, pitch: 'p', h: 'thl', od: 'D' },
+            T([0, 0, 'thl - 0.01'], dome),
+          ),
+        ),
+      ];
+    })(),
+  ),
+  t(
+    'garnelenhoehle',
+    'Garnelen- & Welshöhle',
+    '🦐',
+    ['garnelen', 'garnele', 'höhle', 'hoehle', 'versteck', 'welshöhle', 'welshoehle', 'aquarium', 'aquaristik', 'unterschlupf'],
+    'Kuppelhöhle als Versteck für Garnelen, Welse und Krebse: spitzbogige Eingänge (ohne Stützen druckbar) und kleine Lüftungslöcher.',
+    [
+      num('D', 'Durchmesser', 60, 30, 140, 1, { role: 'width' }),
+      num('wall', 'Wandstärke', 2.5, 1.6, 5, 0.1, { role: 'wall' }),
+      num('de', 'Eingang-Ø', 14, 6, 35, 0.5, { role: 'hole' }),
+      cnt('ne', 'Eingänge', 2, 1, 4),
+      num('hl', 'Lüftungsloch-Ø', 4, 0, 10, 0.5, { hint: '0 = keine Lüftungslöcher' }),
+      cnt('nl', 'Lüftungslöcher', 6, 0, 12),
+    ],
+    [
+      diff(
+        domeShell('D/2', 'wall'),
+        {
+          type: 'for',
+          var: 'k',
+          from: 0,
+          to: 'ne - 1',
+          children: [
+            {
+              type: 'rotate',
+              a: [0, 0, 'k*360/ne'],
+              children: [
+                T(['D/2 - wall/2', 0, 'de/2'], { type: 'teardrop', d: 'de', h: '4*wall + 6', axis: 'x' }),
+                T(['D/2 - wall/2', 0, 'de/4 - 0.5'], { type: 'cube', size: ['4*wall + 6', 'de', 'de/2 + 1'], center: true }),
+              ],
+            },
+          ],
+        },
+        { type: 'if', cond: 'hl > 0 && nl > 0', then: [sphereHoles('D/2', 'wall', 'hl', 'nl', 40, '90/ne')] },
+      ),
+    ],
+  ),
+  t(
+    'pflanzkorb',
+    'Pflanzkorb für Saugnapf',
+    '🌿',
+    ['pflanzkorb', 'pflanzen', 'pflanze', 'aquarium', 'aquaristik', 'saugnapf', 'emers', 'pflanzenhalter', 'korb'],
+    'Pflanzkorb für Aquarienpflanzen mit Schlitzen und Ablauflöchern. Hinten zwei Schlüssellöcher für handelsübliche Saugnäpfe mit Pilzkopf: Kopf ins große Loch, Korb nach unten schieben.',
+    [
+      num('W', 'Breite', 60, 30, 160, 1, { role: 'length' }),
+      num('T', 'Tiefe', 45, 25, 100, 1, { role: 'width' }),
+      num('H', 'Höhe', 50, 20, 120, 1, { role: 'height' }),
+      num('wall', 'Wandstärke', 2, 1.6, 4, 0.1, { role: 'wall' }),
+      flag('slots', 'Schlitze vorne', true),
+      num('sk', 'Saugnapf-Kopf-Ø', 7.5, 4, 14, 0.1, { group: 'Saugnapf', hint: 'Pilzkopf des Saugnapfs messen' }),
+      num('sh', 'Saugnapf-Hals-Ø', 4, 2, 9, 0.1, { group: 'Saugnapf' }),
+    ],
+    [
+      diff(
+        rrect('W', 'T', 4, 'H'),
+        T([0, 0, 'wall'], rrect('W - 2*wall', 'T - 2*wall', 'max(4 - wall, 0.5)', 'H')),
+        // Ablauflöcher im Boden
+        {
+          type: 'for',
+          var: 'i',
+          from: 0,
+          to: 'max(floor((W - 2*wall - 6)/8), 1) - 1',
+          children: [
+            {
+              type: 'for',
+              var: 'j',
+              from: 0,
+              to: 'max(floor((T - 2*wall - 6)/8), 1) - 1',
+              children: [
+                T(
+                  ['(i - (max(floor((W - 2*wall - 6)/8), 1) - 1)/2)*8', '(j - (max(floor((T - 2*wall - 6)/8), 1) - 1)/2)*8', -1],
+                  { type: 'cylinder', d: 3, h: 'wall + 2' },
+                ),
+              ],
+            },
+          ],
+        },
+        // Schlitze vorne
+        {
+          type: 'if',
+          cond: 'slots',
+          then: [
+            {
+              type: 'for',
+              var: 'i',
+              from: 0,
+              to: 'max(floor((W - 16)/7), 1) - 1',
+              children: [
+                T(['(i - (max(floor((W - 16)/7), 1) - 1)/2)*7', '-T/2', 'wall + 4 + (H - wall - 10)/2'], { type: 'cube', size: [2.5, '4*wall', 'H - wall - 10'], center: true }),
+              ],
+            },
+          ],
+        },
+        // Schlüssellöcher hinten (Kopf unten, Schlitz nach oben)
+        {
+          type: 'for',
+          var: 'k',
+          from: 0,
+          to: 1,
+          children: [
+            T(['(k - 0.5)*W/2', 'T/2', 'H*0.55'], { type: 'teardrop', d: 'sk + 2*tol', h: '4*wall', axis: 'y' }),
+            T(['(k - 0.5)*W/2', 'T/2', 'H*0.55 + 4'], { type: 'cube', size: ['sh + 2*tol', '4*wall', 8], center: true }),
+            T(['(k - 0.5)*W/2', 'T/2', 'H*0.55 + 8'], { type: 'teardrop', d: 'sh + 2*tol', h: '4*wall', axis: 'y' }),
+          ],
+        },
+      ),
+    ],
+  ),
+  t(
+    'schlauchhalter',
+    'Schlauchhalter für den Beckenrand',
+    '🧷',
+    ['schlauch', 'schlauchhalter', 'aquarium', 'aquaristik', 'filter', 'luftschlauch', 'beckenrand', 'halter', 'klemme'],
+    'Klemmt auf den Glasrand und hält Filter- oder Luftschlauch per Schnappring. Liegt flach auf dem Bett – ohne Stützen, sehr stabil.',
+    [
+      num('g', 'Glasstärke', 6, 3, 19, 0.5, { hint: 'Dicke der Aquarienscheibe' }),
+      num('L', 'Bügeltiefe', 25, 12, 60, 1, { role: 'length' }),
+      num('d', 'Schlauch-Ø außen', 16, 4, 32, 0.5, { role: 'hole' }),
+      num('b', 'Breite', 12, 6, 30, 0.5, { role: 'height' }),
+      num('w', 'Materialstärke', 3, 2, 6, 0.1, { role: 'wall' }),
+    ],
+    (() => {
+      const gg = 'g + tol';
+      const cx = '-w - d/2 - w + 0.6';
+      const cy = '-L + d/2 + w';
+      return [
+        uni(
+          T(['-w', 0, 0], { type: 'cube', size: [`${gg} + 2*w`, 'w', 'b'] }),
+          T(['-w', '-L', 0], { type: 'cube', size: ['w', 'L + 0.01', 'b'] }),
+          T([gg, '-L*0.6', 0], { type: 'cube', size: ['w', 'L*0.6 + 0.01', 'b'] }),
+          diff(
+            T([cx, cy, 0], { type: 'cylinder', r: 'd/2 + w', h: 'b' }),
+            T([cx, cy, -1], { type: 'cylinder', r: 'd/2', h: 'b + 2' }),
+            T([`${cx} - d/2`, cy, 'b/2'], { type: 'cube', size: ['d*0.6', 'd*0.75', 'b + 2'], center: true }),
+          ),
+        ),
+      ];
+    })(),
+  ),
+  t(
+    'futterring',
+    'Schwimmender Futterring',
+    '🐟',
+    ['futterring', 'futter', 'fütterung', 'fuetterung', 'aquarium', 'aquaristik', 'schwimmring', 'flockenfutter', 'ring'],
+    'Schwimmt dank geschlossener Luftkammer (45°-Dach, ohne Stützen druckbar) und hält Flockenfutter an einer Stelle. Mit 100 % geschlossenen Wänden drucken.',
+    [
+      num('Di', 'Innen-Ø', 60, 30, 160, 1, { role: 'width' }),
+      num('b', 'Ringbreite', 12, 8, 25, 0.5),
+      num('h', 'Höhe', 10, 6, 20, 0.5, { role: 'height' }),
+      num('wall', 'Wandstärke', 1.6, 1.2, 3, 0.1, { role: 'wall' }),
+    ],
+    (() => {
+      const x0 = 'Di/2 + wall',
+        x1 = 'Di/2 + b - wall',
+        xc = 'Di/2 + b/2',
+        hw = 'min((b - 2*wall)/2, (h - 2*wall)/2 - 0.4)';
+      return [
+        {
+          type: 'revolve',
+          fn: 128,
+          shape: {
+            type: 'polygon',
+            points: [['Di/2', 0], ['Di/2 + b', 0], ['Di/2 + b', 'h'], ['Di/2', 'h']],
+            holes: [[[x0, `wall + ${hw}`], [xc, 'wall'], [x1, `wall + ${hw}`], [x1, `h - wall - ${hw}`], [xc, 'h - wall'], [x0, `h - wall - ${hw}`]]],
+          },
+        },
+      ];
+    })(),
+  ),
+
 ];
 
 export function getTemplate(id: string): Template | undefined {

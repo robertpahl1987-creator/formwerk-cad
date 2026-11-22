@@ -17,6 +17,8 @@ const PICKS: { id: string; title: string; sub: string; icon: string; bg: string;
   { id: 'schnappbox', title: 'Box mit Klickdeckel', sub: 'Deckel rastet ein', icon: '🫙', bg: 'from-yellow-500/40 to-amber-900/40' },
   { id: 'hook', title: 'Wandhaken', sub: 'stabil, ohne Stützen', icon: '🪝', bg: 'from-orange-600/40 to-stone-900/40' },
   { id: 'schraube', title: 'Schraube + Mutter', sub: 'echtes M10-Gewinde', icon: '🔩', bg: 'from-zinc-500/40 to-zinc-900/40' },
+  { id: 'mooskugel', title: 'Mooskugel', sub: 'fürs Aquarium, verschraubbar', icon: '🟢', bg: 'from-green-600/40 to-cyan-900/40' },
+  { id: 'garnelenhoehle', title: 'Garnelenhöhle', sub: 'Versteck fürs Aquarium', icon: '🦐', bg: 'from-orange-500/40 to-cyan-900/40' },
   { id: 'toleranztest', title: 'Toleranz-Test', sub: 'einmal drucken, alles passt', icon: '🎯', bg: 'from-green-500/40 to-emerald-900/40' },
 ];
 

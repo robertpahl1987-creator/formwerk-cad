@@ -34,14 +34,21 @@ const g1 = (n: number) => n.toLocaleString('de-DE', { maximumFractionDigits: 1, 
 const hm = (min: number) => `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')} min`;
 
 // ---------------------------------------------------------------- Vorlagen
+const AQUA = new Set(['mooskugel', 'garnelenhoehle', 'pflanzkorb', 'schlauchhalter', 'futterring']);
+
 export function Library() {
   const { dispatch } = useStore();
   return (
     <>
     <MyPartsPanel />
-    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 mb-2">Vorlagen</div>
+    {[
+      { title: 'Vorlagen', list: TEMPLATES.filter((t) => !AQUA.has(t.id)) },
+      { title: '🐟 Aquaristik', list: TEMPLATES.filter((t) => AQUA.has(t.id)) },
+    ].map((g) => (
+    <div key={g.title} className="mb-4">
+    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 mb-2">{g.title}</div>
     <div className="grid grid-cols-2 gap-2">
-      {TEMPLATES.map((t) => (
+      {g.list.map((t) => (
         <button
           key={t.id}
           onClick={() => {
@@ -56,6 +63,8 @@ export function Library() {
         </button>
       ))}
     </div>
+    </div>
+    ))}
     </>
   );
 }
