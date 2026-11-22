@@ -83,7 +83,7 @@ function disposeGroup(g: THREE.Object3D) {
 function makeBed(size: number): THREE.Group {
   const g = new THREE.Group();
   const half = size / 2;
-  const plate = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ color: 0x161b22, roughness: 0.95, metalness: 0, envMapIntensity: 0.08 }));
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ color: 0x2b323c, roughness: 0.9, metalness: 0, envMapIntensity: 0.15 }));
   plate.position.z = -0.02;
   plate.receiveShadow = true;
   g.add(plate);
@@ -311,7 +311,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     renderer.localClippingEnabled = true;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.82;
+    renderer.toneMappingExposure = 0.72;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     el.appendChild(renderer.domElement);
@@ -336,7 +336,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
     controls.maxDistance = 2000;
     scene.add(new THREE.HemisphereLight(0xdde6f0, 0x1b1f26, 0.35));
-    const d1 = new THREE.DirectionalLight(0xfff6ea, 2.1);
+    const d1 = new THREE.DirectionalLight(0xfff6ea, 1.5);
     d1.position.set(150, -200, 300);
     d1.castShadow = true;
     d1.shadow.mapSize.set(2048, 2048);
