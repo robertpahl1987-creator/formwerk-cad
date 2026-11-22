@@ -1,0 +1,106 @@
+import { useState } from 'react';
+import { canvasToDataUri, photoTo3d } from '../ai/meshy';
+import { parseMeshBuffer, registerImported } from '../mesh/importMesh';
+import { loadImageToCanvas } from '../photo/vision';
+import { useStore } from '../state/store';
+import { abortRef } from './TextMode';
+import { Button } from './ui';
+
+/**
+ * Echte 3D-Form aus 1–4 Fotos (Meshy-KI): für Figuren, Tiere, Deko – alles, was sich
+ * nicht aus Grundformen bauen lässt. Ergebnis wird auf die gewünschte Höhe skaliert.
+ */
+export function MeshyCard({ photo }: { photo: HTMLCanvasElement }) {
+  const { state, dispatch } = useStore();
+  const [extra, setExtra] = useState<HTMLCanvasElement[]>([]);
+  const [height, setHeight] = useState(60);
+  const key = state.settings.ai.meshyKey ?? '';
+
+  const addPhoto = async (f: File | undefined) => {
+    if (!f) return;
+    try {
+      const c = await loadImageToCanvas(f);
+      setExtra((x) => [...x, c].slice(0, 3));
+    } catch (e) {
+      dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
+    }
+  };
+
+  const run = async () => {
+    const ac = new AbortController();
+    abortRef.current = ac;
+    dispatch({ type: 'busy', text: 'Fotos werden vorbereitet …' });
+    try {
+      const imgs = [photo, ...extra].map((c) => canvasToDataUri(c));
+      const buf = await photoTo3d(imgs, key, { signal: ac.signal, onStatus: (t) => dispatch({ type: 'busy', text: t }) });
+      const im = await parseMeshBuffer('Foto-Modell', 'stl', buf);
+      await registerImported(im);
+      // auf die gewünschte Höhe bringen (Proportionen bleiben)
+      const s = height > 0 && im.size[2] > 0 ? height / im.size[2] : 1;
+      const size: [number, number, number] = [im.size[0] * s, im.size[1] * s, im.size[2] * s];
+      dispatch({
+        type: 'setModel',
+        model: {
+          name: 'Modell aus Foto',
+          description: `Aus ${imgs.length} Foto${imgs.length > 1 ? 's' : ''} mit Meshy-KI erzeugt, ${size.map((v) => Math.round(v)).join(' × ')} mm. Größe über ⤢ Skalieren anpassen.`,
+          params: [],
+          root: [],
+          source: 'photo',
+          imports: [{ ref: im.id, name: 'Modell aus Foto', slot: 1, pos: [0, 0, 0], rot: [0, 0, 0], size }],
+        },
+        values: {},
+      });
+      dispatch({ type: 'toast', kind: 'ok', text: 'Echte 3D-Form erstellt – im Schritt „Drucken“ prüfen (Stützen meist nötig)' });
+    } catch (e) {
+      if (!ac.signal.aborted) dispatch({ type: 'toast', kind: 'err', text: (e as Error).message });
+    } finally {
+      dispatch({ type: 'busy', text: null });
+      abortRef.current = null;
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-[#00ae42]/60 bg-[#00ae42]/5 p-3 space-y-2.5">
+      <div className="text-[13.5px] font-medium text-white">🪄 Echte 3D-Form aus dem Foto</div>
+      <p className="text-[12px] text-slate-300 leading-snug">
+        Für Figuren, Tiere, Deko und alles Organische: eine 3D-KI formt das Objekt so nach, wie es auf dem Foto aussieht. Mit weiteren Fotos von der Seite und von hinten wird es genauer.
+      </p>
+      <div className="flex gap-1.5 items-center">
+        {[photo, ...extra].map((c, i) => (
+          <img key={i} src={c.toDataURL('image/jpeg', 0.5)} alt="" className="w-12 h-12 object-cover rounded-md border border-[#30363d]" />
+        ))}
+        {extra.length < 3 && (
+          <label className="w-12 h-12 rounded-md border border-dashed border-[#30363d] text-slate-400 text-[20px] flex items-center justify-center cursor-pointer" title="Weiteres Foto (andere Seite)">
+            +
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => (addPhoto(e.target.files?.[0]), (e.target.value = ''))} />
+          </label>
+        )}
+        {extra.length > 0 && (
+          <button className="text-[11px] text-slate-400 ml-auto" onClick={() => setExtra([])}>
+            Zusatzfotos weg
+          </button>
+        )}
+      </div>
+      <label className="flex items-center gap-2 text-[12.5px] text-slate-300">
+        Höhe des Gegenstands
+        <input
+          inputMode="decimal"
+          className="w-20 h-8 rounded-md bg-[#0d1117] border border-[#30363d] px-2 text-[13px] text-slate-100"
+          value={height}
+          onChange={(e) => setHeight(Math.max(5, Math.min(250, parseFloat(e.target.value.replace(',', '.')) || 0)))}
+        />
+        mm
+      </label>
+      {key ? (
+        <Button variant="primary" className="w-full" onClick={run} disabled={!!state.busy}>
+          🪄 3D-Form erzeugen (1–4 Min.)
+        </Button>
+      ) : (
+        <Button className="w-full" onClick={() => dispatch({ type: 'showSettings', on: true })}>
+          🔑 Meshy-Schlüssel eintragen (einmalig)
+        </Button>
+      )}
+      <p className="text-[11px] text-slate-500 leading-snug">Tipp: Gegenstand vor ruhigem Hintergrund, gut ausgeleuchtet, ganz im Bild. Jedes Modell kostet Meshy-Credits.</p>
+    </div>
+  );
+}

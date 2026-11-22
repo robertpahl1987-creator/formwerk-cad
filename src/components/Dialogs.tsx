@@ -105,6 +105,11 @@ export function SettingsDialog() {
           <span className="text-[13px] text-slate-300">OpenAI-Modell</span>
           <input value={ai.openaiModel} onChange={(e) => setAi({ openaiModel: e.target.value })} className={field} />
         </label>
+        <label className="block">
+          <span className="text-[13px] text-slate-300">Meshy API-Key (Foto → echte 3D-Form)</span>
+          <input type="password" autoComplete="off" value={ai.meshyKey ?? ''} onChange={(e) => setAi({ meshyKey: e.target.value.trim() })} placeholder="msy_… (meshy.ai → API)" className={field} />
+          <span className="block text-[11px] text-slate-500 mt-1">Für Figuren und organische Formen aus Fotos. Konto auf meshy.ai, Schlüssel unter „API“. Jedes Modell kostet Meshy-Credits.</span>
+        </label>
         <p className="text-[11px] text-slate-500">
           Schlüssel werden nur lokal in diesem Browser gespeichert und direkt an den gewählten Anbieter gesendet. Ohne KI arbeitet die App mit den eingebauten Vorlagen und der
           lokalen Konturerkennung.

@@ -21,6 +21,8 @@ export interface AiSettings {
   geminiModel: string;
   openaiKey: string;
   openaiModel: string;
+  /** Meshy (meshy.ai) – echte Foto-zu-3D-Umwandlung */
+  meshyKey?: string;
   /** Detailgrad der KI-Modelle */
   detail?: 'einfach' | 'normal' | 'hoch';
   /** zweiter Durchgang: Modell gegen die Aufgabe prüfen und verfeinern */
@@ -224,7 +226,7 @@ export async function generateWithAi(req: UserRequest, settings: AiSettings, opt
         .map(([k, v]) => `- ${k}: ${v}`)
         .join('\n');
       const json = JSON.stringify({ name: model.name, description: model.description, checklist: model.checklist, params: model.params, root: model.root });
-      const raw2 = await call(reviewPrompt(req.text + (req.imageInfo ? `\nFOTO: ${req.imageInfo}` : ''), ms, json, req.detail ?? settings.detail));
+      const raw2 = await call(reviewPrompt(req.text + (req.imageInfo ? `\nFOTO: ${req.imageInfo}` : ''), ms, json, req.detail ?? settings.detail), opts.image);
       const v3 = validateModel(extractJson(raw2), src);
       if (v3.ok) {
         model = v3.model!;

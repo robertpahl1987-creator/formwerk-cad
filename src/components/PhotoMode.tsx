@@ -1,3 +1,4 @@
+import { MeshyCard } from './MeshyCard';
 import { useCallback, useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { generateWithAi, PROVIDER_LABEL, resolveProvider } from '../ai/providers';
 import { defaultValues } from '../cad/validate';
@@ -233,12 +234,12 @@ export function PhotoMode() {
       `Bild ${work.width} × ${work.height} px.`,
       pxPerMm ? `Maßstab: ${pxPerMm.toFixed(4)} px/mm (${rectified ? 'perspektivisch entzerrt, Draufsicht' : 'über Referenzlinie bestimmt'}).` : 'Kein Maßstab – schätze Maße aus bekannten Objekten.',
       !rectified && pts.length === 2 && refMm ? `Referenzlinie von (${pts[0].map(Math.round).join(', ')}) nach (${pts[1].map(Math.round).join(', ')}) px = ${refMm} mm.` : '',
-      `Gewünschte Tiefe/Extrusion: ${depth} mm.`,
+      `Nur falls es ein flaches Teil ist: Dicke ${depth} mm. Räumliche Objekte vollständig dreidimensional nachbauen (nicht als flache Extrusion).`,
     ].join(' ');
     const hint = mm ? `Breite ${mm.width.toFixed(2)} mm, Höhe ${mm.height.toFixed(2)} mm\nAußen: ${JSON.stringify(mm.outer.slice(0, 160))}\n${mm.holes.length ? `Löcher: ${JSON.stringify(mm.holes.map((h) => h.slice(0, 60)))}` : ''}` : undefined;
     try {
       const { model, provider } = await generateWithAi(
-        { text: desc || 'Erstelle aus dem fotografierten Objekt ein maßhaltiges, druckbares 3D-Modell.', measures: { depth }, tol: state.settings.tol, multicolor: false, imageInfo: info, contourHint: hint },
+        { text: desc || 'Erstelle aus dem fotografierten Objekt ein maßhaltiges, druckbares 3D-Modell.', measures: {}, tol: state.settings.tol, multicolor: false, imageInfo: info, contourHint: hint },
         state.settings.ai,
         { image: blob, signal: ac.signal, onStatus: (s) => dispatch({ type: 'busy', text: s }) },
       );
@@ -290,6 +291,9 @@ export function PhotoMode() {
           <p className="text-[11px] text-slate-500 mt-2">Tipp: Objekt senkrecht von oben auf ein weißes A4-Blatt legen – dann ist die Messung am genauesten.</p>
         </div>
       )}
+
+      {orig && <MeshyCard photo={orig} />}
+      {orig && <div className="text-[11.5px] text-slate-500 text-center">— oder flache/technische Teile genau vermessen —</div>}
 
       {work && (
         <>

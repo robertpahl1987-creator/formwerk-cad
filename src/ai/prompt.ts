@@ -120,6 +120,15 @@ export function userPrompt(r: UserRequest): string {
     DETAIL[r.detail ?? 'hoch'],
     r.multicolor ? 'MEHRFARBIG: Ja – teile das Modell in sinnvolle Farbteile (color-Knoten, Slots 1–4).' : '',
     r.imageInfo ? `FOTO: ${r.imageInfo}` : '',
+    r.imageInfo
+      ? `FOTO-NACHBAU – so vorgehen:
+1. Beschreibe dir das Objekt genau: Was ist es? Aus welchen Hauptteilen besteht es (z. B. Körper, Kopf, Ohren, Beine, Sockel, Griff)? Wie verhalten sich Breite, Tiefe und Höhe zueinander?
+2. Lies die Proportionen aus dem Foto ab (z. B. „Kopf = 40 % der Höhe“) und übertrage sie exakt auf die Maße.
+3. Baue jedes Hauptteil einzeln nach: runde und organische Teile mit sphere (gestaucht per scale = Ellipsoid), hull aus mehreren Kugeln für weiche Übergänge, radial/revolve für Drehkörper; eckige Teile mit roundedCube. Teile überlappen sich leicht.
+4. Wichtige Merkmale (Augen, Nase, Kanten, Muster, Beschriftung) als flache Vertiefungen oder Erhebungen.
+5. Standfläche unten flach abschneiden, damit es druckbar steht.
+Ziel: Auf den ersten Blick muss man erkennen, dass es das fotografierte Objekt ist.`
+      : '',
     r.contourHint ? `GEMESSENE KONTUR (lokal aus dem Foto vermessen, mm, Ursprung = Mitte, Y nach oben) – nutze sie als exakte Grundlage:\n${r.contourHint}` : '',
     'Antworte nur mit dem JSON-Objekt.',
   ]
@@ -138,7 +147,7 @@ export function reviewPrompt(task: string, measures: string, modelJson: string, 
 AUFGABE: ${task.trim()}
 ${measures ? `GEFORDERTE MASSE:\n${measures}\n` : ''}${DETAIL[detail ?? 'hoch']}
 
-PRÜFE STRENG, Punkt für Punkt:
+PRÜFE STRENG, Punkt für Punkt (liegt ein Foto bei: vergleiche Form, Proportionen und Merkmale mit dem Foto):
 1. Ist JEDE Anforderung der Aufgabe umgesetzt (jedes Maß exakt, jede Anzahl, jedes genannte Merkmal, Text)? Fehlt etwas → ergänzen.
 2. Sieht es aus wie das echte Objekt? Proportionen, gerundete/gefaste Kanten, typische Funktionsdetails (Griff, Rippen, Befestigung, Falz …). Fehlt etwas Wesentliches → ergänzen.
 3. Passt alles zusammen: Teile überlappen bzw. berühren sich wo nötig, nichts schwebt, Löcher gehen durch, Passungen mit tol, druckbar ohne Stützen, steht auf z=0.
