@@ -4,6 +4,8 @@ on:
   push:
     branches-ignore: [main]
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,3 +17,11 @@ jobs:
       - run: npm install
       - run: npm run selftest
       - run: npm run build
+      - name: Build als Branch preview-dist ablegen (zum lokalen Testen)
+        if: github.ref == 'refs/heads/selbsttest'
+        run: |
+          cd dist
+          git init -q -b preview-dist
+          git -c user.name=ci -c user.email=ci@local add -A
+          git -c user.name=ci -c user.email=ci@local commit -qm dist
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" preview-dist
