@@ -99,7 +99,7 @@ for (const [id, want] of [['scharnier', () => 2], ['kugelgelenk', () => 2], ['fl
   checks++;
   const tm = TEMPLATES.find((t) => t.id === id)!.model;
   const v = defaultValues(tm);
-  const st = analyzeMesh(meshFromPolygons(buildParts(tm, v, { tol: 0.2, fase: true }).parts[0].polys));
+  const st = analyzeMesh(meshFromPolygons(buildParts(tm, v, { tol: 0.2, fase: true }, { rx: 0, ry: 0 }).parts[0].polys));
   const n = want(v);
   const ok = st.shells === n && st.openEdges === 0;
   if (!ok) fails++;
