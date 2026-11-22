@@ -177,6 +177,8 @@ export type Action =
   /** Ganzes Modell skalieren/spiegeln (null = zurücksetzen) */
   | { type: 'xform'; scale: [number, number, number] | null }
   | { type: 'ranges'; ranges: NonNullable<ModelDef['ranges']> }
+  /** Beschreibung des Modells aktualisieren (ohne Neuaufbau) */
+  | { type: 'prompt'; text: string }
   | { type: 'asmView'; view: AsmState['view'] }
   | { type: 'asmEdit'; id: number | null }
   | { type: 'asmJoints'; patch: Partial<AsmJointOptions> }
@@ -305,6 +307,8 @@ function reducer(s: State, a: Action): State {
         },
       };
     }
+    case 'prompt':
+      return s.model ? { ...s, model: { ...s.model, prompt: a.text } } : s;
     case 'ranges':
       return s.model ? { ...s, model: { ...s.model, ranges: a.ranges.length ? a.ranges : undefined } } : s;
     case 'xform': {

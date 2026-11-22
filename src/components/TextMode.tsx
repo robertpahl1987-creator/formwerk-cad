@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { refineModel, generateFromText } from '../ai/generate';
 import { PROVIDER_LABEL, resolveProvider } from '../ai/providers';
-import { describeMeasures, parseMeasuresFromText, type Measures } from '../cad/templates';
+import { applyMeasures, describeMeasures, parseMeasuresFromText, type Measures } from '../cad/templates';
 import { insideClaude } from '../platform/claude';
 import { useStore } from '../state/store';
 import { Button, NumberInput, Toggle } from './ui';
@@ -94,6 +94,80 @@ export function TextMode() {
     taRef.current?.focus();
   };
   const changed = !!fromText && text.trim() !== fromText.trim();
+
+  // ---- Live: Text bearbeiten → Modell passt sich automatisch an ----
+  const [auto, setAuto] = useState(() => {
+    try {
+      return localStorage.getItem('formwerk-cad:auto-text') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [liveMsg, setLiveMsg] = useState<string | null>(null);
+  const liveAc = useRef<AbortController | null>(null);
+  const live = useRef({ state, text });
+  live.current = { state, text };
+  useEffect(() => {
+    if (!auto || !fromText || !state.model || !changed) return;
+    const oldT = fromText;
+    const newT = text;
+    // 1) Maße sofort (ohne KI): geänderte Zahlen direkt auf die passenden Parameter
+    const t1 = setTimeout(() => {
+      const { state: st } = live.current;
+      if (!st.model) return;
+      const a = parseMeasuresFromText(oldT) as Record<string, number>,
+        b = parseMeasuresFromText(newT) as Record<string, number>;
+      const diff: Measures = {};
+      for (const k of Object.keys(b)) if (a[k] !== b[k]) (diff as Record<string, number>)[k] = b[k];
+      if (!Object.keys(diff).length) return;
+      const nv = applyMeasures(structuredClone(st.model), st.values, diff);
+      let n = 0;
+      for (const [k, v] of Object.entries(nv))
+        if (st.values[k] !== v) {
+          dispatch({ type: 'param', key: k, value: v });
+          n++;
+        }
+      if (n) setLiveMsg(`✓ ${n} Maß${n === 1 ? '' : 'e'} übernommen`);
+    }, 600);
+    // 2) Andere Änderungen (Wörter, neue Details) nach kurzer Pause per KI einbauen
+    const norm = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/\d+([.,]\d+)?/g, '#')
+        .replace(/[^a-zäöüß#]+/g, ' ')
+        .trim();
+    const wordsChanged = norm(oldT) !== norm(newT);
+    const t2 = wordsChanged
+      ? setTimeout(async () => {
+          const { state: st, text: cur } = live.current;
+          if (!st.model || cur !== newT) return;
+          liveAc.current?.abort();
+          const ac = new AbortController();
+          liveAc.current = ac;
+          const change = newT.startsWith(oldT) ? newT.slice(oldT.length).replace(/^[\s,;.]+/, '') : `Neue, vollständige Beschreibung (alles Bisherige anpassen): ${newT}`;
+          setLiveMsg('⏳ Passe Modell an deinen Text an …');
+          try {
+            const r = await refineModel(st.model, st.values, change, { ai: st.settings.ai, signal: ac.signal, onStatus: (t) => setLiveMsg(`⏳ ${t}`) });
+            if (ac.signal.aborted) return;
+            if (r.model) dispatch({ type: 'setModel', model: { ...r.model, prompt: newT }, values: r.values });
+            else {
+              for (const [k, v] of Object.entries(r.values)) if (st.values[k] !== v) dispatch({ type: 'param', key: k, value: v });
+              dispatch({ type: 'prompt', text: newT });
+            }
+            setLiveMsg(r.changed?.length ? `✓ Angepasst: ${r.changed.join(', ')}` : `✓ Angepasst (${r.via})`);
+          } catch (e) {
+            if (!ac.signal.aborted) setLiveMsg(`⚠ ${(e as Error).message.split('\n')[0]}`);
+          }
+        }, 2500)
+      : setTimeout(() => dispatch({ type: 'prompt', text: newT }), 700);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, auto]);
+  // Tippt man weiter, laufende KI-Anpassung abbrechen
+  useEffect(() => () => liveAc.current?.abort(), []);
   // Nur die Ergänzung ins bestehende Modell einbauen (behält alles andere)
   const refine = async () => {
     if (!state.model) return;
@@ -238,6 +312,20 @@ export function TextMode() {
 
       {fromText && state.model ? (
         <div className="space-y-2">
+          <Toggle
+            label="Live anpassen"
+            hint="Text einfach ändern: Maße werden sofort übernommen, neue Details baut die KI nach einer kurzen Tipp-Pause ein"
+            checked={auto}
+            onChange={(v) => {
+              setAuto(v);
+              try {
+                localStorage.setItem('formwerk-cad:auto-text', v ? '1' : '0');
+              } catch {
+                /* egal */
+              }
+            }}
+          />
+          {liveMsg && auto && <div className="text-[12px] text-slate-300">{liveMsg}</div>}
           <div className="rounded-lg border border-[#00ae42]/40 bg-[#00ae42]/5 p-2.5 text-[12px] text-slate-300">
             {changed ? (
               <>✏️ Text geändert. <b className="text-slate-100">Details einbauen</b> behält dein Modell und ergänzt nur das Neue – <b className="text-slate-100">Neu erstellen</b> baut alles neu nach dem Text.</>
