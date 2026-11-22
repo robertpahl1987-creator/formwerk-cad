@@ -165,6 +165,8 @@ export type Action =
   | { type: 'buildErr'; error: string }
   | { type: 'busy'; text: string | null }
   | { type: 'toast'; kind: 'ok' | 'err' | 'info'; text: string }
+  /** Stand eines Team-Mitglieds übernehmen (Zusammenarbeiten) */
+  | { type: 'teamApply'; model: ModelDef | null; values: Record<string, Value>; orientation: { rx: number; ry: number }; zonesOn: boolean; zones: State['zones'] }
   | { type: 'clearToast' }
   | { type: 'settings'; patch: Partial<Settings> }
   | { type: 'view'; patch: Partial<ViewOpts> }
@@ -229,6 +231,19 @@ function reducer(s: State, a: Action): State {
               asm: { ...s.asm, editing: null },
             }
           : {}),
+      };
+    }
+    case 'teamApply': {
+      const changed = (s.model?.templateId ?? null) !== (a.model?.templateId ?? null) || (!!s.model !== !!a.model);
+      return {
+        ...s,
+        model: a.model,
+        values: a.values,
+        orientation: a.orientation,
+        zonesOn: a.zonesOn,
+        zones: a.zones,
+        ...(a.model && !s.model && s.step === 'create' ? { step: 'adjust' as const } : {}),
+        ...(changed ? { modelVersion: s.modelVersion + 1, view: { ...s.view, plate: -1 }, buildError: null, ...(a.model ? {} : { build: null }) } : {}),
       };
     }
     case 'clearModel':

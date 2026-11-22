@@ -16,6 +16,7 @@ import { freeBus, useFreeSnapshot } from './state/freeBus';
 import { FreeMode } from './components/FreeMode';
 import { LithoMode } from './components/LithoMode';
 import { CloudPanel } from './components/CloudPanel';
+import { TeamBadge, TeamPanel, useTeamSync } from './components/TeamPanel';
 import { Gallery } from './components/Gallery';
 import { readShareHash } from './platform/share';
 import { PhotoMode } from './components/PhotoMode';
@@ -79,6 +80,7 @@ function TopBar() {
           ⤓ App
         </button>
       )}
+      <TeamBadge />
       <button onClick={() => dispatch({ type: 'showCode', on: true })} className="h-9 px-3 rounded-lg border border-[#30363d] text-slate-300 hover:text-white text-[13px]" title="Code anzeigen">
         {'</>'}
       </button>
@@ -232,6 +234,7 @@ function PanelContent() {
         <Welcome />
         <Gallery />
         <CloudPanel />
+        <TeamPanel />
         <div className="px-4 pt-4 pb-4">
           <div className="text-[12px] text-slate-400 mb-2">Wie möchtest du dein Teil erstellen?</div>
           <div className="grid grid-cols-2 gap-2 mb-4">
@@ -614,6 +617,7 @@ export function App() {
   const { state, dispatch } = useStore();
   const desktop = useMedia('(min-width: 1024px)');
   const s = state.settings;
+  useTeamSync();
   // Importierte Dateien (STL/3MF) aus dem Gerätespeicher laden; danach neu bauen
   const importVer = useSyncExternalStore(subscribeImports, importVersion, importVersion);
   useEffect(() => {
