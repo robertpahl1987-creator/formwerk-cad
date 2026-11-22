@@ -25,7 +25,8 @@ import { Button, cx, SliderRow, useMedia } from './components/ui';
 import { checkApkUpdate, isNativeApp, openApkDownload } from './platform/native';
 import { explodedParts } from './state/pipeline';
 import { buildModel } from './state/buildClient';
-import { useStore, type Mode, type Step } from './state/store';
+import { markRestoreOnReload, useStore, type Mode, type Step } from './state/store';
+import { ResumeDialog } from './components/ResumeDialog';
 import { Viewer } from './viewer/Viewer';
 import { importVersion, loadImported, subscribeImports } from './mesh/importMesh';
 
@@ -532,6 +533,7 @@ function WebUpdateBanner() {
           } catch {
             /* egal */
           }
+          markRestoreOnReload();
           location.reload();
         }}
         className="h-9 px-3 rounded-lg bg-[#00ae42] text-white text-[13px] font-medium shrink-0"
@@ -808,6 +810,7 @@ export function App() {
       <Busy />
       <UpdateBanner />
       <WebUpdateBanner />
+      <ResumeDialog />
       <ContextMenu />
       <Toast />
     </div>

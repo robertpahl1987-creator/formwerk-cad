@@ -75,6 +75,17 @@ export interface ViewOpts {
   supports?: boolean;
 }
 
+export interface ResumeInfo {
+  model: ModelDef;
+  values: Record<string, Value>;
+  orientation: { rx: number; ry: number };
+  mode: Mode;
+  step: Step;
+  zonesOn: boolean;
+  zones: ColorZone[];
+  at?: number;
+}
+
 export interface State {
   mode: Mode;
   step: Step;
@@ -95,6 +106,8 @@ export interface State {
   history: { model: ModelDef; values: Record<string, Value> }[];
   modelVersion: number; // erhöht sich bei neuem Modell → Kamera neu ausrichten
   asm: AsmState;
+  /** Beim Öffnen gefundenes letztes Projekt – Nutzer entscheidet: weitermachen oder neu */
+  resume: ResumeInfo | null;
 }
 
 export const DEFAULT_PALETTE: FilamentSlot[] = [
@@ -166,6 +179,8 @@ export type Action =
   | { type: 'busy'; text: string | null }
   | { type: 'toast'; kind: 'ok' | 'err' | 'info'; text: string }
   /** Stand eines Team-Mitglieds übernehmen (Zusammenarbeiten) */
+  | { type: 'resumeAccept' }
+  | { type: 'resumeDismiss' }
   | { type: 'teamApply'; model: ModelDef | null; values: Record<string, Value>; orientation: { rx: number; ry: number }; zonesOn: boolean; zones: State['zones'] }
   | { type: 'clearToast' }
   | { type: 'settings'; patch: Partial<Settings> }
@@ -233,6 +248,13 @@ function reducer(s: State, a: Action): State {
           : {}),
       };
     }
+    case 'resumeAccept': {
+      const r = s.resume;
+      if (!r) return s;
+      return { ...s, resume: null, model: r.model, values: { ...defaultValues(r.model), ...r.values }, orientation: r.orientation, mode: r.mode, step: r.step === 'create' ? 'adjust' : r.step, zonesOn: r.zonesOn, zones: r.zones, modelVersion: s.modelVersion + 1, buildError: null };
+    }
+    case 'resumeDismiss':
+      return { ...s, resume: null };
     case 'teamApply': {
       const changed = (s.model?.templateId ?? null) !== (a.model?.templateId ?? null) || (!!s.model !== !!a.model);
       return {
@@ -392,6 +414,37 @@ interface SavedProject {
   step: State['step'];
   zonesOn: boolean;
   zones: State['zones'];
+  at?: number;
+}
+const RESTORE_FLAG = 'formwerk-cad:projekt-wiederherstellen';
+/** Vor einem Neuladen durch die App (Update) aufrufen: danach wird das Projekt ohne Nachfrage wiederhergestellt. */
+export function markRestoreOnReload() {
+  try {
+    sessionStorage.setItem(RESTORE_FLAG, '1');
+    localStorage.setItem(RESTORE_FLAG, String(Date.now()));
+  } catch {
+    /* egal */
+  }
+}
+/** Wurde die Seite gerade durch ein Update/Neuladen gestartet (und nicht frisch geöffnet)? */
+function isReloadStart(): boolean {
+  try {
+    const t = Number(localStorage.getItem(RESTORE_FLAG) ?? 0);
+    localStorage.removeItem(RESTORE_FLAG);
+    const flag = sessionStorage.getItem(RESTORE_FLAG) === '1' || Date.now() - t < 120000;
+    sessionStorage.removeItem(RESTORE_FLAG);
+    const nav = performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined;
+    return flag || nav?.type === 'reload';
+  } catch {
+    return false;
+  }
+}
+export function discardSavedProject() {
+  try {
+    localStorage.removeItem(PROJECT_KEY);
+  } catch {
+    /* egal */
+  }
 }
 function loadProject(): Partial<SavedProject> | null {
   try {
@@ -405,7 +458,8 @@ function loadProject(): Partial<SavedProject> | null {
   }
 }
 function saveProject(s: State) {
-  const p: SavedProject = { v: 1, model: s.model, values: s.values, orientation: s.orientation, mode: s.mode, step: s.step, zonesOn: s.zonesOn, zones: s.zones };
+  if (s.resume) return; // Nutzer hat noch nicht entschieden – gespeichertes Projekt nicht überschreiben
+  const p: SavedProject = { v: 1, model: s.model, values: s.values, orientation: s.orientation, mode: s.mode, step: s.step, zonesOn: s.zonesOn, zones: s.zones, at: Date.now() };
   try {
     localStorage.setItem(PROJECT_KEY, JSON.stringify(p));
   } catch {
@@ -420,7 +474,10 @@ function saveProject(s: State) {
 
 export function StoreProvider({ children, initialModel = null }: { children: ReactNode; initialModel?: ModelDef | null }) {
   const [state, dispatch] = useReducer(reducer, undefined, (): State => {
-    const saved = initialModel ? null : loadProject();
+    const found = initialModel ? null : loadProject();
+    // Nach einem Update/Neuladen direkt weitermachen; beim normalen Öffnen erst fragen
+    const direct = !!found?.model && isReloadStart();
+    const saved = direct ? found : null;
     const model = initialModel ?? saved?.model ?? null;
     return {
     mode: saved?.mode ?? 'text',
@@ -445,6 +502,10 @@ export function StoreProvider({ children, initialModel = null }: { children: Rea
     history: [],
     modelVersion: 1,
     asm: loadAsm(),
+    resume:
+      !direct && found?.model
+        ? { model: found.model, values: found.values ?? {}, orientation: found.orientation ?? { rx: 0, ry: 0 }, mode: found.mode ?? 'text', step: found.step ?? 'adjust', zonesOn: !!found.zonesOn, zones: found.zones ?? [{ z: 0, slot: 1 }, { z: 3, slot: 2 }], at: found.at }
+        : null,
     };
   });
   // Projekt laufend sichern (entprellt) und beim Verlassen/Neuladen sofort
@@ -453,7 +514,7 @@ export function StoreProvider({ children, initialModel = null }: { children: Rea
   useEffect(() => {
     const t = setTimeout(() => saveProject(state), 500);
     return () => clearTimeout(t);
-  }, [state.model, state.values, state.orientation, state.mode, state.step, state.zonesOn, state.zones]);
+  }, [state.model, state.values, state.orientation, state.mode, state.step, state.zonesOn, state.zones, state.resume]);
   useEffect(() => {
     const flush = () => saveProject(latest.current);
     window.addEventListener('pagehide', flush);
