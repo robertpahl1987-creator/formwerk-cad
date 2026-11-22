@@ -4,7 +4,18 @@
  * Ende-zu-Ende verschlüsselt (siehe team.ts), der Broker sieht nur Datensalat.
  */
 
-export const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
+export interface Broker {
+  url: string;
+  user?: string;
+  pass?: string;
+}
+/** Alle gleichzeitig – Nachrichten laufen doppelt, kommen so aber auch an, wenn ein Netz
+ *  bestimmte Ports sperrt (shiftr läuft über den normalen HTTPS-Port 443). */
+export const BROKERS: Broker[] = [
+  { url: 'wss://public.cloud.shiftr.io', user: 'public', pass: 'public' },
+  { url: 'wss://broker.emqx.io:8084/mqtt' },
+  { url: 'wss://broker.hivemq.com:8884/mqtt' },
+];
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -51,7 +62,6 @@ export class Mqtt {
   private buf = new Uint8Array(0);
   private ping: ReturnType<typeof setInterval> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
-  private broker = 0;
   private fails = 0;
   private closed = false;
   private online = false;
@@ -62,6 +72,7 @@ export class Mqtt {
 
   constructor(
     private clientId: string,
+    private broker: Broker,
     private h: MqttHandlers,
   ) {}
 
@@ -76,8 +87,8 @@ export class Mqtt {
 
   private open() {
     if (this.closed) return;
-    const url = BROKERS[this.broker % BROKERS.length];
-    this.h.onStatus('connecting', url.replace(/^wss:\/\/|:\d+.*$/g, ''));
+    const url = this.broker.url;
+    this.h.onStatus('connecting', host(url));
     let ws: WebSocket;
     try {
       ws = new WebSocket(url, ['mqtt']);
@@ -91,6 +102,15 @@ export class Mqtt {
       clearTimeout(timeout);
       let flags = 0x02; // clean session
       const payload: Uint8Array[] = [str(this.clientId)];
+      const auth: Uint8Array[] = [];
+      if (this.broker.user) {
+        flags |= 0x80;
+        auth.push(str(this.broker.user));
+        if (this.broker.pass !== undefined) {
+          flags |= 0x40;
+          auth.push(str(this.broker.pass));
+        }
+      }
       if (this.will) {
         flags |= 0x04 | 0x20; // Will, Will-Retain
         payload.push(str(this.will.topic));
@@ -100,6 +120,7 @@ export class Mqtt {
         w.set(this.will.payload, 2);
         payload.push(w);
       }
+      payload.push(...auth);
       ws.send(packet(0x10, str('MQTT'), new Uint8Array([4, flags, 0, 30]), ...payload) as Uint8Array<ArrayBuffer>);
     };
     ws.onmessage = (e) => this.feed(new Uint8Array(e.data as ArrayBuffer));
@@ -110,7 +131,6 @@ export class Mqtt {
       this.buf = new Uint8Array(0);
       if (this.ping) clearInterval(this.ping);
       this.ping = null;
-      if (!this.online) this.broker++; // nie verbunden gewesen → nächsten Broker probieren
       this.online = false;
       this.h.onStatus('offline');
       this.scheduleRetry();
@@ -164,7 +184,7 @@ export class Mqtt {
       }
       this.online = true;
       this.fails = 0;
-      this.h.onStatus('online', BROKERS[this.broker % BROKERS.length].replace(/^wss:\/\/|:\d+.*$/g, ''));
+      this.h.onStatus('online', host(this.broker.url));
       if (this.subs.length) this.sendSub(this.subs);
       this.ping = setInterval(() => this.raw(new Uint8Array([0xc0, 0])), 20000);
       const q = this.queue;
@@ -235,3 +255,5 @@ function sameTopic(p: Uint8Array, topic: string): boolean {
   const tl = (p[i] << 8) | p[i + 1];
   return dec.decode(p.subarray(i + 2, i + 2 + tl)) === topic;
 }
+
+const host = (url: string) => url.replace(/^wss:\/\//, '').replace(/[:/].*$/, '');

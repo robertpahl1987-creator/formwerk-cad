@@ -7,7 +7,7 @@
  * stand bleibt dort (verschlüsselt) liegen, so dass später Dazukommende ihn sofort sehen.
  */
 import { useSyncExternalStore } from 'react';
-import { Mqtt } from '../platform/mqtt';
+import { BROKERS, Mqtt } from '../platform/mqtt';
 import { SHARE_BASE } from '../platform/share';
 
 const KEY = 'formwerk-cad:team';
@@ -71,18 +71,19 @@ const set = (p: Partial<TeamState>) => {
   listeners.forEach((l) => l());
 };
 
-let mq: Mqtt | null = null;
+let mqs: Mqtt[] = [];
+const online = new Set<number>();
 let key: CryptoKey | null = null;
 let secret = '';
 let hb: ReturnType<typeof setInterval> | null = null;
 let creator = false;
 const receivers = new Set<(m: TeamMsg, retained: boolean) => void>();
 
-async function encrypt(obj: unknown): Promise<Uint8Array> {
+async function encrypt(obj: unknown, k: CryptoKey | null = key): Promise<Uint8Array> {
   const raw = new TextEncoder().encode(JSON.stringify(obj));
   const z = await pipe(raw, new CompressionStream('deflate-raw'));
   const iv = rnd(12);
-  const c = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key!, z as BufferSource));
+  const c = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k!, z as BufferSource));
   const out = new Uint8Array(12 + c.length);
   out.set(iv);
   out.set(c, 12);
@@ -136,10 +137,10 @@ function sayHi() {
 }
 
 async function send(m: TeamMsg, retainTopic?: string) {
-  if (!mq || !key) return;
+  if (!mqs.length || !key) return;
   const data = await encrypt(m);
   if (data.length > 900_000) throw new Error('Projekt ist zu groß für die Live-Übertragung');
-  mq.publish(retainTopic ? topic(retainTopic) : topic('ev'), data, !!retainTopic);
+  for (const mq of mqs) mq.publish(retainTopic ? topic(retainTopic) : topic('ev'), data, !!retainTopic);
 }
 
 export const team = {
@@ -196,20 +197,28 @@ export const team = {
       /* egal */
     }
     set({ room, status: 'connecting', members: [], last: null, error: null });
-    mq = new Mqtt(`fw-${st.me.id}-${b64url(rnd(3))}`, {
-      onMessage: (t, p, r) => void onMessage(t, p, r),
-      onStatus: (s, info) => {
-        set({ status: s, broker: s === 'online' ? info ?? '' : st.broker });
-        if (s === 'online') {
-          lastHi = 0;
-          sayHi();
-        }
-      },
+    online.clear();
+    const cid = `fw-${st.me.id}-${b64url(rnd(3))}`;
+    mqs = BROKERS.map((b, i) => {
+      const mq = new Mqtt(cid, b, {
+        onMessage: (t, p, r) => void onMessage(t, p, r),
+        onStatus: (s) => {
+          if (s === 'online') online.add(i);
+          else online.delete(i);
+          const any = online.size > 0;
+          set({ status: any ? 'online' : s === 'offline' && st.status !== 'connecting' ? 'offline' : 'connecting', broker: `${online.size}/${BROKERS.length}` });
+          if (s === 'online') {
+            lastHi = 0;
+            sayHi();
+          }
+        },
+      });
+      mq.subscribe(topic('state'));
+      mq.subscribe(topic('ev'));
+      mq.subscribe(topic('mesh/+'));
+      mq.connect();
+      return mq;
     });
-    mq.subscribe(topic('state'));
-    mq.subscribe(topic('ev'));
-    mq.subscribe(topic('mesh/+'));
-    mq.connect();
     if (hb) clearInterval(hb);
     hb = setInterval(() => {
       if (st.status === 'online') {
@@ -222,10 +231,16 @@ export const team = {
   },
   /** Raum verlassen (forget: nicht mehr automatisch wieder verbinden) */
   leave(forget = true) {
-    if (mq && key && st.status === 'online') void send({ k: 'bye', id: st.me.id }).catch(() => {});
-    const m = mq;
-    mq = null;
-    if (m) setTimeout(() => m.close(), 150);
+    const old = mqs;
+    const oldTopic = topic('ev');
+    mqs = [];
+    online.clear();
+    if (old.length && key && st.status === 'online') {
+      encrypt({ k: 'bye', id: st.me.id })
+        .then((d) => old.forEach((m) => m.publish(oldTopic, d)))
+        .catch(() => {})
+        .finally(() => setTimeout(() => old.forEach((m) => m.close()), 150));
+    } else old.forEach((m) => m.close());
     if (hb) clearInterval(hb);
     hb = null;
     key = null;

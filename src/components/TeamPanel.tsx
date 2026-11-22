@@ -218,7 +218,7 @@ export function TeamPanel() {
       setCode('');
     });
 
-  const statusText = t.status === 'online' ? `verbunden` : t.status === 'connecting' ? 'verbinde …' : t.status === 'offline' ? 'getrennt – verbinde neu …' : '';
+  const statusText = t.status === 'online' ? `verbunden (${t.broker})` : t.status === 'connecting' ? 'verbinde …' : t.status === 'offline' ? 'getrennt – verbinde neu …' : '';
   const small = 'h-9 text-[12px]';
   return (
     <div className="mx-4 mt-3 rounded-xl border border-[#30363d] bg-[#0d1117]">
