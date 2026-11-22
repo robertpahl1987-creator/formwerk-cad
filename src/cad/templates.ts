@@ -1020,7 +1020,7 @@ export const TEMPLATES: Template[] = [
                 {
                   type: 'if',
                   cond: 'k < n - 1',
-                  then: [T([`(${bodyStart} + ${xn})/2`, 0, 0], rrect(`${xn} - (${bodyStart}) + 0.01`, wk, `min(${wk}/2 - 0.5, 3)`, 'H'))],
+                  then: [T([`(${bodyStart} + ${xn})/2`, 0, 0], rrect(`${xn} - (${bodyStart}) + 0.01`, wk, `${wk}/2`, 'H'))],
                   else: [T([`${bodyStart} + Ls*0.8`, 0, 0], rrect('Ls*1.6', wk, `${wk}/2 - 0.01`, 'H'))],
                 },
                 // Gelenkscheibe vorn

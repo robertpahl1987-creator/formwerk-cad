@@ -2,6 +2,7 @@ import { viewerShot } from './shot';
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { localExtent, type FreePart } from '../cad/free';
 import type { PartResult } from '../state/pipeline';
 import { getImported } from '../mesh/importMesh';
@@ -224,6 +225,73 @@ function printMaterial(o: { layer: number; infill: number; clip: THREE.Plane[]; 
   return m;
 }
 
+/**
+ * Weiche Normalen mit Knickwinkel: Rundungen wirken glatt (keine Facetten), echte Kanten bleiben scharf.
+ * arr = nicht-indizierte Dreiecksliste (je 9 Werte pro Dreieck).
+ */
+function creasedNormals(arr: Float32Array, angleDeg = 32): Float32Array {
+  const n = arr.length / 9;
+  const fn = new Float32Array(n * 3);
+  for (let t = 0; t < n; t++) {
+    const o = t * 9;
+    const ax = arr[o + 3] - arr[o], ay = arr[o + 4] - arr[o + 1], az = arr[o + 5] - arr[o + 2];
+    const bx = arr[o + 6] - arr[o], by = arr[o + 7] - arr[o + 1], bz = arr[o + 8] - arr[o + 2];
+    // Kreuzprodukt = Normale × doppelte Fläche (Gewichtung nach Fläche)
+    fn[t * 3] = ay * bz - az * by;
+    fn[t * 3 + 1] = az * bx - ax * bz;
+    fn[t * 3 + 2] = ax * by - ay * bx;
+  }
+  const key = (i: number) => `${Math.round(arr[i] * 1e3)},${Math.round(arr[i + 1] * 1e3)},${Math.round(arr[i + 2] * 1e3)}`;
+  const at = new Map<string, number[]>();
+  for (let v = 0; v < n * 3; v++) {
+    const k = key(v * 3);
+    let l = at.get(k);
+    if (!l) at.set(k, (l = []));
+    l.push((v / 3) | 0);
+  }
+  const cosA = Math.cos((angleDeg * Math.PI) / 180);
+  const out = new Float32Array(n * 9);
+  const len = (t: number) => Math.hypot(fn[t * 3], fn[t * 3 + 1], fn[t * 3 + 2]) || 1;
+  for (let v = 0; v < n * 3; v++) {
+    const t = (v / 3) | 0;
+    const lt = len(t);
+    let x = 0, y = 0, z = 0;
+    for (const u of at.get(key(v * 3))!) {
+      const lu = len(u);
+      const c = (fn[t * 3] * fn[u * 3] + fn[t * 3 + 1] * fn[u * 3 + 1] + fn[t * 3 + 2] * fn[u * 3 + 2]) / (lt * lu);
+      if (c >= cosA) {
+        x += fn[u * 3];
+        y += fn[u * 3 + 1];
+        z += fn[u * 3 + 2];
+      }
+    }
+    const l = Math.hypot(x, y, z) || 1;
+    out[v * 3] = x / l;
+    out[v * 3 + 1] = y / l;
+    out[v * 3 + 2] = z / l;
+  }
+  return out;
+}
+
+/** Feine Schichtlinien an den Wänden – das Modell sieht aus wie gedruckt (sehr dezent). */
+function addLayerLook(m: THREE.MeshStandardMaterial, layer: number) {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uLayer = { value: Math.max(0.04, layer) };
+    sh.vertexShader = 'varying vec3 vWp;\nvarying vec3 vWn;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWp = (modelMatrix * vec4(transformed, 1.0)).xyz;\n  vWn = normalize(mat3(modelMatrix) * objectNormal);');
+    sh.fragmentShader =
+      'uniform float uLayer;\nvarying vec3 vWp;\nvarying vec3 vWn;\n' +
+      sh.fragmentShader.replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+      float sideF = 1.0 - smoothstep(0.7, 0.95, abs(vWn.z));
+      float lf = fract(vWp.z / uLayer);
+      float ridge = smoothstep(0.0, 0.4, lf) * (1.0 - smoothstep(0.6, 1.0, lf));
+      diffuseColor.rgb *= mix(1.0, 0.93 + 0.07 * ridge, sideF);`,
+      );
+  };
+  m.customProgramCacheKey = () => 'fw-layer-look';
+}
+
 const fmt = (n: number) => `${(Math.round(n * 10) / 10).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mm`;
 
 export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, onMenu, onTransform, layer = 0.2, infill = 0.15, tool = null, onFace, cutPreview = null, paintable = false, slotColors = {} }: Props) {
@@ -243,10 +311,20 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     renderer.localClippingEnabled = true;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     el.appendChild(renderer.domElement);
     renderer.domElement.style.touchAction = 'none';
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
+    // Weiches Studiolicht als Umgebung → natürliche Glanzlichter auf dem Kunststoff
+    try {
+      const pm = new THREE.PMREMGenerator(renderer);
+      scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+      pm.dispose();
+    } catch {
+      /* ohne Umgebung geht es auch */
+    }
     const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 5000);
     camera.up.set(0, 0, 1);
     camera.position.set(180, -260, 200);
@@ -256,9 +334,18 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
     controls.screenSpacePanning = true;
     controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
     controls.maxDistance = 2000;
-    scene.add(new THREE.HemisphereLight(0xdde6f0, 0x1b1f26, 1.1));
-    const d1 = new THREE.DirectionalLight(0xffffff, 1.6);
+    scene.add(new THREE.HemisphereLight(0xdde6f0, 0x1b1f26, 0.55));
+    const d1 = new THREE.DirectionalLight(0xffffff, 1.35);
     d1.position.set(150, -200, 300);
+    d1.castShadow = true;
+    d1.shadow.mapSize.set(2048, 2048);
+    d1.shadow.camera.left = d1.shadow.camera.bottom = -200;
+    d1.shadow.camera.right = d1.shadow.camera.top = 200;
+    d1.shadow.camera.near = 50;
+    d1.shadow.camera.far = 900;
+    d1.shadow.bias = -0.0004;
+    d1.shadow.normalBias = 0.4;
+    d1.shadow.radius = 4;
     scene.add(d1);
     const d2 = new THREE.DirectionalLight(0x9fc5ff, 0.6);
     d2.position.set(-200, 150, 120);
@@ -708,7 +795,7 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      geo.computeVertexNormals();
+      geo.setAttribute('normal', new THREE.BufferAttribute(creasedNormals(arr), 3));
       if (print) {
         const front = new THREE.Mesh(geo, printMaterial({ layer, infill, clip: pclip, vertexColors: true }));
         tagMesh(front, partIdx, arr, col);
@@ -718,8 +805,9 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       }
       const mat = new THREE.MeshStandardMaterial({
         vertexColors: true,
-        roughness: 0.55,
-        metalness: 0.05,
+        roughness: 0.42,
+        metalness: 0,
+        envMapIntensity: 0.55,
         clippingPlanes: clip,
         transparent: view.xray,
         opacity: view.xray ? 0.28 : 1,
@@ -729,7 +817,10 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
         polygonOffsetFactor: 1,
         polygonOffsetUnits: 1,
       });
+      if (!view.xray) addLayerLook(mat, layer);
       const solidMesh = new THREE.Mesh(geo, mat);
+      solidMesh.castShadow = !view.xray;
+      solidMesh.receiveShadow = !view.xray;
       tagMesh(solidMesh, partIdx, arr, col);
       c.model.add(solidMesh);
       if (view.section && !view.xray) {
