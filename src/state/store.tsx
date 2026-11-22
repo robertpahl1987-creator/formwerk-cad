@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useReducer, type Dispatch, type ReactNode } from 'react';
+import { createContext, useRef, useContext, useEffect, useReducer, type Dispatch, type ReactNode } from 'react';
 import { DEFAULT_AI, type AiSettings } from '../ai/providers';
 import { defaultValues } from '../cad/validate';
 import type { ColorZone, FilamentSlot, ModelDef, Orientation, Value } from '../cad/types';
@@ -366,15 +366,55 @@ function reducer(s: State, a: Action): State {
 
 const Ctx = createContext<{ state: State; dispatch: Dispatch<Action> } | null>(null);
 
+/** Aktuelles Projekt geräteseitig sichern – übersteht Neuladen und automatische Updates. */
+const PROJECT_KEY = 'formwerk-cad:projekt';
+interface SavedProject {
+  v: 1;
+  model: ModelDef | null;
+  values: Record<string, Value>;
+  orientation: { rx: number; ry: number };
+  mode: Mode;
+  step: State['step'];
+  zonesOn: boolean;
+  zones: State['zones'];
+}
+function loadProject(): Partial<SavedProject> | null {
+  try {
+    const raw = localStorage.getItem(PROJECT_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as SavedProject;
+    if (p.v !== 1) return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+function saveProject(s: State) {
+  const p: SavedProject = { v: 1, model: s.model, values: s.values, orientation: s.orientation, mode: s.mode, step: s.step, zonesOn: s.zonesOn, zones: s.zones };
+  try {
+    localStorage.setItem(PROJECT_KEY, JSON.stringify(p));
+  } catch {
+    // zu groß (z. B. riesiges Modell): ohne Verlauf-Ballast nochmal versuchen, sonst aufgeben
+    try {
+      localStorage.setItem(PROJECT_KEY, JSON.stringify({ ...p, model: p.model ? { ...p.model, freeParts: undefined } : null }));
+    } catch {
+      /* Speicher voll */
+    }
+  }
+}
+
 export function StoreProvider({ children, initialModel = null }: { children: ReactNode; initialModel?: ModelDef | null }) {
-  const [state, dispatch] = useReducer(reducer, undefined, (): State => ({
-    mode: 'text',
-    step: 'create',
-    model: initialModel,
-    values: initialModel ? defaultValues(initialModel) : {},
-    orientation: { rx: 0, ry: 0 },
-    zonesOn: false,
-    zones: [
+  const [state, dispatch] = useReducer(reducer, undefined, (): State => {
+    const saved = initialModel ? null : loadProject();
+    const model = initialModel ?? saved?.model ?? null;
+    return {
+    mode: saved?.mode ?? 'text',
+    step: model ? (saved?.step ?? 'adjust') : 'create',
+    model,
+    values: model ? { ...defaultValues(model), ...(saved?.values ?? {}) } : {},
+    orientation: saved?.orientation ?? { rx: 0, ry: 0 },
+    zonesOn: saved?.zonesOn ?? false,
+    zones: saved?.zones ?? [
       { z: 0, slot: 1 },
       { z: 3, slot: 2 },
     ],
@@ -390,7 +430,24 @@ export function StoreProvider({ children, initialModel = null }: { children: Rea
     history: [],
     modelVersion: 1,
     asm: loadAsm(),
-  }));
+    };
+  });
+  // Projekt laufend sichern (entprellt) und beim Verlassen/Neuladen sofort
+  const latest = useRef(state);
+  latest.current = state;
+  useEffect(() => {
+    const t = setTimeout(() => saveProject(state), 500);
+    return () => clearTimeout(t);
+  }, [state.model, state.values, state.orientation, state.mode, state.step, state.zonesOn, state.zones]);
+  useEffect(() => {
+    const flush = () => saveProject(latest.current);
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', flush);
+    };
+  }, []);
   useEffect(() => {
     try {
       const { items, next, joints, pins, report } = state.asm;
