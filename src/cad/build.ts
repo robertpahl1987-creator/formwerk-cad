@@ -55,7 +55,7 @@ function threadGeom(d: number, p: number, h: number, iso: boolean, chamfer: bool
   const { depth, r } = threadProfile(p, iso);
   const R = d / 2;
   const N = clamp(Math.round((Math.PI * d) / 0.5 / 8) * 8, 48, 160);
-  const rows = Math.max(2, Math.ceil(h / (p / 12)));
+  const rows = Math.max(2, Math.ceil(h / (p / 8)));
   const c = chamfer ? Math.min(depth, h / 4) : 0;
   const rad = (th: number, z: number) => {
     const phi = ((((z / p) + (left ? 1 : -1) * (th / (2 * Math.PI))) % 1) + 1) % 1;
@@ -103,7 +103,7 @@ function internalThreadGeom(d: number, p: number, h: number, iso: boolean, left:
   let N = clamp(Math.round((Math.PI * d) / 0.5 / 8) * 8, 48, 168);
   N = Math.ceil(N / 24) * 24;
   const fl = clamp(floor, 0, h - p);
-  const rowsIn = Math.max(2, Math.ceil((h - fl) / (p / 12)));
+  const rowsIn = Math.max(2, Math.ceil((h - fl) / (p / 8)));
   const outR = (th: number) => {
     if (odfn < 3) return Ro;
     const seg = (2 * Math.PI) / odfn;
@@ -167,8 +167,8 @@ function radialGeom(o: {
   const rMax = Math.max(o.r0, o.r1) + Math.abs(o.bulge) + Math.abs(o.amp);
   let N = clamp(Math.round((2 * Math.PI * rMax) / 0.8), 72, 360);
   const per = o.pattern !== 'none' ? Math.max(1, o.count) : 1;
-  N = Math.ceil(N / (per * 4)) * per * 4; // Muster sauber auf das Raster legen
-  const rowStep = o.pattern === 'none' ? 1 : Math.min(0.8, o.pitch / 12);
+  N = Math.max(per * 4, Math.round(N / (per * 4)) * per * 4); // Muster sauber auf das Raster legen (nächstes Vielfaches – nicht aufrunden, spart viele Dreiecke)
+  const rowStep = o.pattern === 'none' ? 1 : Math.min(0.8, o.pitch / 8);
   const rows = Math.max(2, Math.ceil(o.h / rowStep));
   const groove = (x: number) => Math.max(0, 1 - Math.abs((((x % 1) + 1) % 1) - 0.5) * 4); // Dreiecksrille, Breite = halbe Teilung
   const outR = (th: number, z: number) => {
