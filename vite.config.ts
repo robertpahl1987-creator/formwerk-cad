@@ -16,6 +16,8 @@ export default defineConfig({
   base: './',
   plugins: [react(), tailwindcss(), versionFile()],
   define: { __BUILD__: JSON.stringify(BUILD) },
+  // Hintergrund-Berechnung (buildWorker) als ES-Modul, damit three/jscad-Chunks geteilt werden können
+  worker: { format: 'es' },
   build: {
     target: 'es2022',
     // FW_DEBUG=1: unminifiziert (nur für den Test-Build auf preview-dist)

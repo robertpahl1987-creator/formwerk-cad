@@ -23,7 +23,8 @@ import { PhotoMode } from './components/PhotoMode';
 import { abortRef, TextMode } from './components/TextMode';
 import { Button, cx, SliderRow, useMedia } from './components/ui';
 import { checkApkUpdate, isNativeApp, openApkDownload } from './platform/native';
-import { explodedParts, runPipeline } from './state/pipeline';
+import { explodedParts } from './state/pipeline';
+import { buildModel } from './state/buildClient';
 import { useStore, type Mode, type Step } from './state/store';
 import { Viewer } from './viewer/Viewer';
 import { importVersion, loadImported, subscribeImports } from './mesh/importMesh';
@@ -690,30 +691,34 @@ export function App() {
   useEffect(() => {
     if (!state.model) return;
     dispatch({ type: 'buildStart' });
+    let live = true;
     const t = setTimeout(() => {
-      try {
-        const r = runPipeline(state.model!, state.values, {
-          globals: { tol: s.tol, fase: s.fase },
-          orientation: state.orientation,
-          zones: state.zonesOn ? state.zones : null,
-          palette: s.palette,
-          material: s.material,
-          profile: s.profile,
-          layer: s.layer,
-          overhangDeg: s.overhangDeg,
-          bedSize: s.bedSize,
-          bedHeight: s.bedHeight,
-          split: s.split,
-          hollow: s.hollow,
-          ears: s.ears ?? 0,
+      buildModel(state.model!, state.values, {
+        globals: { tol: s.tol, fase: s.fase },
+        orientation: state.orientation,
+        zones: state.zonesOn ? state.zones : null,
+        palette: s.palette,
+        material: s.material,
+        profile: s.profile,
+        layer: s.layer,
+        overhangDeg: s.overhangDeg,
+        bedSize: s.bedSize,
+        bedHeight: s.bedHeight,
+        split: s.split,
+        hollow: s.hollow,
+        ears: s.ears ?? 0,
+      })
+        .then((r) => live && dispatch({ type: 'buildOk', build: r }))
+        .catch((e: Error & { superseded?: boolean }) => {
+          if (e.superseded || !live) return;
+          console.error(e);
+          dispatch({ type: 'buildErr', error: e.message });
         });
-        dispatch({ type: 'buildOk', build: r });
-      } catch (e) {
-        console.error(e);
-        dispatch({ type: 'buildErr', error: (e as Error).message });
-      }
     }, 90);
-    return () => clearTimeout(t);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
   }, [importVer, state.model, state.values, state.orientation, state.zonesOn, state.zones, s.tol, s.fase, s.palette, s.material, s.profile, s.layer, s.overhangDeg, s.bedSize, s.bedHeight, s.split, s.hollow, s.ears, dispatch]);
 
   const b = state.build;
