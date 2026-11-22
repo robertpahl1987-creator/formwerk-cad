@@ -17,6 +17,8 @@ import { FreeMode } from './components/FreeMode';
 import { LithoMode } from './components/LithoMode';
 import { CloudPanel } from './components/CloudPanel';
 import { TeamBadge, TeamPanel, useTeamSync } from './components/TeamPanel';
+import { FitAssistant } from './components/FitAssistant';
+import { PosterButton } from './components/PosterButton';
 import { Gallery } from './components/Gallery';
 import { readShareHash } from './platform/share';
 import { PhotoMode } from './components/PhotoMode';
@@ -306,6 +308,7 @@ function PanelContent() {
               <ObjectList />
               <HistoryPanel />
               <ParamPanel />
+              <FitAssistant />
               <EditPanel />
             </>
           )}
@@ -324,6 +327,7 @@ function PanelContent() {
           <ExportPanel />
           <SaveToMyParts />
           <ShareButton />
+          <PosterButton />
           <PlateJobPanel />
           <AssemblyPanel />
           <div className="px-4 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Erweitert (optional)</div>

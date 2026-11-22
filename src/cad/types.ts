@@ -68,6 +68,11 @@ export type CadNode =
       wall?: Expr;
       floor?: Expr;
     }
+  /**
+   * Halbkugel-Schale (Rand auf z=0, Kuppel nach oben) mit Fenstern als direktes Netz – wasserdicht und schnell.
+   * rows = Fensterreihen, holes = Fenster pro Reihe, hole = Fenstergröße (mm), top = Öffnung oben (Ø, 0 = zu)
+   */
+  | { type: 'dome'; r: Expr; wall: Expr; rows?: Expr; holes?: Expr; hole?: Expr; top?: Expr }
   | {
       type: 'thread';
       d: Expr;

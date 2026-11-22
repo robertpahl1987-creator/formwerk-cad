@@ -38,6 +38,8 @@ Immer verfügbar: tol (Drucktoleranz in mm, Standard 0.2) und fase (bool: Überh
     "pattern":"none"|"raendel"|"rillen"|"wellen"|"waben","depth":mm,"count":n,"wall":mm,"floor":mm}
     // Rotationskörper um Z ab z=0 (Vase, Becher, Knopf, Griff, Flasche): sides=0 rund, sides=6 Sechskant; wall>0 = hohl mit Boden floor;
     // pattern = echte Griffstruktur (Rändel, Rillen) – ideal für Drehknöpfe, Deckel, Griffe
+ {"type":"dome","r":r,"wall":w,"rows":n,"holes":n,"hole":mm,"top":ø}   // Halbkugel-Schale ab z=0 (Kuppel oben) mit Fenstern – schnell & wasserdicht.
+    // Für Kugeln/Käfige (Mooskugel, Futterkugel, Lampenschirm) statt sphere+difference verwenden!
  {"type":"thread","d":d,"pitch":p,"h":h,"iso":true,"chamfer":true}   // Außengewinde, Achse Z ab z=0 (M-Gewinde: iso=true, Steigung M6=1, M8=1.25, M10=1.5, M12=1.75)
  {"type":"thread","d":d,"pitch":p,"h":h,"iso":true,"internal":true,"od":aussen,"odfn":0|6,"floor":mm}  // Innengewinde (Mutter, Schraubdeckel); odfn=6 → Sechskant
     // Schraubdeckel: Dose mit Außengewinde, Deckel mit internal-Gewinde d + 2*tol + 0.4 – beide nebeneinander aufs Bett

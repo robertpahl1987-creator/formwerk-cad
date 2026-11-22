@@ -855,6 +855,7 @@ export const TEMPLATES: Template[] = [
       num('wall', 'Wandstärke', 2, 1.2, 4, 0.1, { role: 'wall' }),
       num('hd', 'Loch-Ø', 10, 4, 22, 0.5, { role: 'hole', hint: 'Groß genug, damit kleine Fische nicht stecken bleiben' }),
       cnt('n', 'Löcher pro Reihe', 6, 3, 12),
+      cnt('reihen', 'Lochreihen', 2, 1, 4),
       flag('top', 'Loch oben', true),
       num('p', 'Gewinde-Steigung', 3, 2, 5, 0.25, { group: 'Gewinde' }),
       num('thl', 'Gewindelänge', 6, 4, 12, 0.5, { group: 'Gewinde' }),
@@ -863,12 +864,7 @@ export const TEMPLATES: Template[] = [
     (() => {
       const dm = 'D - 2*wall - 2*tol - 1.5';
       const ct = `(D - (${dm}))/2`;
-      const dome = diff(
-        domeShell('D/2', 'wall'),
-        sphereHoles('D/2', 'wall', 'hd', 'n', 35),
-        sphereHoles('D/2', 'wall', 'hd', 'n', 65, '180/n'),
-        { type: 'if', cond: 'top', then: [T([0, 0, 'D/2 - wall/2'], { type: 'cylinder', d: 'hd', h: '4*wall + 4', center: true })] },
-      );
+      const dome: CadNode = { type: 'dome', r: 'D/2', wall: 'wall', rows: 'reihen', holes: 'n', hole: 'hd', top: 'top ? hd*1.4 : 0' };
       return [
         // Hälfte mit Außengewinde
         uni(
@@ -879,18 +875,18 @@ export const TEMPLATES: Template[] = [
           T(
             [0, 0, 'thl - 0.01'],
             diff(
-              { type: 'cylinder', r1: `(${dm})/2 - 0.3`, r2: 'D/2', h: ct },
-              T([0, 0, -0.01], { type: 'cylinder', r1: `(${dm})/2 - 0.62*p - wall`, r2: 'D/2 - wall', h: `${ct} + 0.02` }),
+              { type: 'cylinder', r1: `(${dm})/2 - 0.3`, r2: 'D/2 - 0.1', h: ct },
+              T([0, 0, -0.01], { type: 'cylinder', r1: `(${dm})/2 - 0.62*p - wall`, r2: 'D/2 - wall + 0.1', h: `${ct} + 0.02` }),
             ),
           ),
-          T([0, 0, `thl + ${ct} - 0.02`], dome),
+          T([0, 0, `thl + ${ct} - 0.3`], dome),
         ),
-        // Hälfte mit Innengewinde
+        // Hälfte mit Innengewinde (Ring 0,3 mm breiter als die Kugel → keine deckungsgleichen Flächen)
         T(
           ['D + gap', 0, 0],
           uni(
-            { type: 'thread', internal: true, d: `${dm} + 2*tol`, pitch: 'p', h: 'thl', od: 'D' },
-            T([0, 0, 'thl - 0.01'], dome),
+            { type: 'thread', internal: true, d: `${dm} + 2*tol`, pitch: 'p', h: 'thl', od: 'D + 0.6' },
+            T([0, 0, 'thl - 0.5'], dome),
           ),
         ),
       ];
@@ -952,26 +948,13 @@ export const TEMPLATES: Template[] = [
       diff(
         rrect('W', 'T', 4, 'H'),
         T([0, 0, 'wall'], rrect('W - 2*wall', 'T - 2*wall', 'max(4 - wall, 0.5)', 'H')),
-        // Ablauflöcher im Boden
+        // Ablaufschlitze im Boden
         {
           type: 'for',
-          var: 'i',
+          var: 'j',
           from: 0,
-          to: 'max(floor((W - 2*wall - 6)/8), 1) - 1',
-          children: [
-            {
-              type: 'for',
-              var: 'j',
-              from: 0,
-              to: 'max(floor((T - 2*wall - 6)/8), 1) - 1',
-              children: [
-                T(
-                  ['(i - (max(floor((W - 2*wall - 6)/8), 1) - 1)/2)*8', '(j - (max(floor((T - 2*wall - 6)/8), 1) - 1)/2)*8', -1],
-                  { type: 'cylinder', d: 3, h: 'wall + 2' },
-                ),
-              ],
-            },
-          ],
+          to: 'max(floor((T - 2*wall - 6)/7), 1) - 1',
+          children: [T([0, '(j - (max(floor((T - 2*wall - 6)/7), 1) - 1)/2)*7', 'wall/2'], { type: 'cube', size: ['W - 2*wall - 10', 2.5, 'wall + 2'], center: true })],
         },
         // Schlitze vorne
         {

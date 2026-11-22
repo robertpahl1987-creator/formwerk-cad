@@ -1,3 +1,4 @@
+import { viewerShot } from './shot';
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -584,7 +585,37 @@ export function Viewer({ parts, view, bedSize, modelVersion, overlay, onPick, on
       renderer.render(scene, camera);
     };
     loop();
+    // Vorschaubild: Modell schräg von vorn, ohne Maßpfeile/Werkzeuge, in fester Größe
+    viewerShot.take = (W: number, H: number) => {
+      if (!c.bbox) return null;
+      const hidden = [dims, overlayG, selG, gizmo, toolsG].filter((g) => g.visible);
+      hidden.forEach((g) => (g.visible = false));
+      const oldPos = camera.position.clone(),
+        oldAspect = camera.aspect,
+        oldPR = renderer.getPixelRatio(),
+        oldSize = renderer.getSize(new THREE.Vector2());
+      const ctr = c.bbox.getCenter(new THREE.Vector3());
+      const size = c.bbox.getSize(new THREE.Vector3()).length();
+      const dist = (size / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.05;
+      camera.position.copy(ctr).add(new THREE.Vector3(0.55, -0.85, 0.62).normalize().multiplyScalar(dist));
+      camera.lookAt(ctr);
+      renderer.setPixelRatio(1);
+      renderer.setSize(W, H, false);
+      camera.aspect = W / H;
+      camera.updateProjectionMatrix();
+      renderer.render(scene, camera);
+      const url = renderer.domElement.toDataURL('image/png');
+      renderer.setPixelRatio(oldPR);
+      renderer.setSize(oldSize.x, oldSize.y, false);
+      camera.aspect = oldAspect;
+      camera.position.copy(oldPos);
+      camera.lookAt(controls.target);
+      camera.updateProjectionMatrix();
+      hidden.forEach((g) => (g.visible = true));
+      return url;
+    };
     return () => {
+      viewerShot.take = null;
       cv.removeEventListener('pointerdown', onDown, { capture: true });
       cv.removeEventListener('pointermove', onMove);
       cv.removeEventListener('pointerup', onUp);

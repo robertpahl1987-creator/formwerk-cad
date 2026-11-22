@@ -55,6 +55,8 @@ function node(n: CadNode, ind: string): string {
       return `${ind}rotate_extrude(angle = ${n.angle !== undefined ? e(n.angle) : '360'}${n.fn !== undefined ? `, $fn = ${e(n.fn)}` : ''}) {\n${shape(n.shape, ind + '  ')}${ind}}\n`;
     case 'radial':
       return `${ind}// Rotationskörper (Vase/Muster) – in OpenSCAD nur als Grundform: \n${ind}cylinder(h = ${e(n.h)}, r1 = ${e(n.r0)}, r2 = ${e(n.r1 ?? n.r0)});\n`;
+    case 'dome':
+      return `${ind}// Kuppel mit Fenstern – in OpenSCAD nur als glatte Schale:\n${ind}difference() { sphere(r = ${e(n.r)}); sphere(r = ${e(n.r)} - ${e(n.wall)}); translate([0, 0, -${e(n.r)}]) cube(2 * ${e(n.r)}, center = true); }\n`;
     case 'thread':
       return `${ind}fw_thread(${e(n.d)}, ${e(n.pitch)}, ${e(n.h)}, iso = ${n.iso ? 'true' : 'false'}, chamfer = ${n.chamfer ? 'true' : 'false'}, left = ${n.left ? 'true' : 'false'});\n`;
     case 'import':

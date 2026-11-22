@@ -8,7 +8,7 @@ import type { CadNode, ModelDef, ParamDef, Shape2D } from './types';
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RESERVED = new Set(['tol', 'fase', 'PI', 'true', 'false', 'for', 'if', 'else', 'module', 'function']);
 const NODE_TYPES = new Set([
-  'cube', 'roundedCube', 'cylinder', 'sphere', 'extrude', 'revolve', 'teardrop', 'import', 'thread', 'radial',
+  'cube', 'roundedCube', 'cylinder', 'sphere', 'extrude', 'revolve', 'teardrop', 'import', 'thread', 'radial', 'dome',
   'union', 'difference', 'intersection', 'hull', 'translate', 'rotate', 'mirror', 'scale', 'if', 'for',
   'text', 'color',
 ]);
@@ -162,6 +162,11 @@ export function validateModel(raw: unknown, source: ModelDef['source'] = 'ai'): 
       case 'radial':
         checkExpr(n.h, `${w}.h`, scope);
         checkExpr(n.r0, `${w}.r0`, scope);
+        return;
+      case 'dome':
+        checkExpr(n.r, `${w}.r`, scope);
+        checkExpr(n.wall, `${w}.wall`, scope);
+        for (const k of ['rows', 'holes', 'hole', 'top'] as const) if (n[k] !== undefined) checkExpr(n[k], `${w}.${k}`, scope);
         return;
       case 'thread':
         checkExpr(n.d, `${w}.d`, scope);

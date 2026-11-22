@@ -163,8 +163,9 @@ export function repairTJunctions(m: Mesh, maxPass = 4): Mesh {
       if (len2 < 1e-14) return [];
       const lo = [Math.min(ax, ax + dx), Math.min(ay, ay + dy), Math.min(az, az + dz)];
       const hi = [Math.max(ax, ax + dx), Math.max(ay, ay + dy), Math.max(az, az + dz)];
-      const c0 = [Math.floor((lo[0] - minX) / cs), Math.floor((lo[1] - minY) / cs), Math.floor((lo[2] - minZ) / cs)];
-      const c1 = [Math.floor((hi[0] - minX) / cs), Math.floor((hi[1] - minY) / cs), Math.floor((hi[2] - minZ) / cs)];
+      // ±1 Zelle: Punkte, die durch Rundung (z. B. 29.999999999999993 statt 30) knapp in der Nachbarzelle liegen
+      const c0 = [Math.floor((lo[0] - minX) / cs) - 1, Math.floor((lo[1] - minY) / cs) - 1, Math.floor((lo[2] - minZ) / cs) - 1];
+      const c1 = [Math.floor((hi[0] - minX) / cs) + 1, Math.floor((hi[1] - minY) / cs) + 1, Math.floor((hi[2] - minZ) / cs) + 1];
       const found: { i: number; t: number }[] = [];
       const eps = 2e-4;
       const ncell = (c1[0] - c0[0] + 1) * (c1[1] - c0[1] + 1) * (c1[2] - c0[2] + 1);

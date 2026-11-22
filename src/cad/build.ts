@@ -159,6 +159,86 @@ function internalThreadGeom(d: number, p: number, h: number, iso: boolean, left:
   return G.geom3.fromPoints(polys);
 }
 
+/**
+ * Halbkugel-Schale mit Fenstern als direktes Netz (keine Booleschen Operationen):
+ * Gitter aus Polwinkel × Azimut; Fenster-Zellen werden ausgelassen und mit Laibungen geschlossen.
+ */
+function domeGeom(R: number, w: number, rows: number, holes: number, hole: number, top: number): Geom {
+  const Ri = R - w;
+  const NP = clamp(Math.round(((Math.PI / 2) * R) / 1.6), 16, 60);
+  let NA = clamp(Math.round((2 * Math.PI * R) / 1.6), 48, 200);
+  const per = holes > 0 ? Math.max(4, Math.round(NA / holes)) : NA;
+  if (holes > 0) NA = per * holes;
+  const dphi = Math.PI / 2 / NP,
+    dth = (2 * Math.PI) / NA;
+  // Öffnung oben: so viele Zeilen weglassen, dass der Ø passt
+  const topRows = top > 0 ? clamp(Math.round(Math.asin(Math.min(1, top / 2 / R)) / dphi), 1, NP - 4) : 0;
+  const solid: boolean[][] = Array.from({ length: NP }, (_, i) => Array.from({ length: NA }, () => i >= topRows));
+  if (holes > 0 && rows > 0 && hole > 0) {
+    const hr = Math.max(1, Math.round(hole / (R * dphi)));
+    const free0 = topRows + 2,
+      free1 = NP - 3; // unten Rand stehen lassen
+    for (let k = 0; k < rows; k++) {
+      const ci = Math.round(free0 + ((k + 1) * (free1 - free0)) / (rows + 1));
+      const i0 = clamp(ci - Math.floor(hr / 2), free0, free1 - hr);
+      const phiC = (ci + 0.5) * dphi;
+      const wc = clamp(Math.round(hole / (R * Math.sin(phiC) * dth)), 1, per - 2);
+      const off = k % 2 ? Math.floor(per / 2) : 0;
+      for (let h = 0; h < holes; h++) {
+        const j0 = h * per + off + Math.floor((per - wc) / 2);
+        for (let i = i0; i < i0 + hr; i++) for (let jj = 0; jj < wc; jj++) solid[i][(j0 + jj) % NA] = false;
+      }
+    }
+  }
+  const pt = (r: number, i: number, j: number): number[] => {
+    const phi = i * dphi,
+      th = j * dth;
+    if (i === 0) return [0, 0, r];
+    return [r * Math.sin(phi) * Math.cos(th), r * Math.sin(phi) * Math.sin(th), r * Math.cos(phi)];
+  };
+  const O = (i: number, j: number) => pt(R, i, ((j % NA) + NA) % NA);
+  const I = (i: number, j: number) => pt(Ri, i, ((j % NA) + NA) % NA);
+  const polys: number[][][] = [];
+  const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  /** Vieleck so ausrichten, dass die Normale in Richtung dir zeigt, dann als Dreiecke ablegen. */
+  const face = (pts: number[][], dir: number[]) => {
+    const n = cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]));
+    const p = dot(n, dir) >= 0 ? pts : [...pts].reverse();
+    for (let k = 1; k < p.length - 1; k++) polys.push([p[0], p[k], p[k + 1]]);
+  };
+  const mid = (i: number, j: number) => pt((R + Ri) / 2, i, j);
+  const cellC = (i: number, j: number) => {
+    const phi = (i + 0.5) * dphi,
+      th = (j + 0.5) * dth,
+      r = (R + Ri) / 2;
+    return [r * Math.sin(phi) * Math.cos(th), r * Math.sin(phi) * Math.sin(th), r * Math.cos(phi)];
+  };
+  const S = (i: number, j: number) => i >= 0 && i < NP && solid[i][((j % NA) + NA) % NA];
+  for (let i = 0; i < NP; i++)
+    for (let j = 0; j < NA; j++) {
+      if (!S(i, j)) continue;
+      const c = cellC(i, j);
+      // außen / innen
+      if (i === 0) {
+        face([O(0, 0), O(1, j), O(1, j + 1)], c);
+        face([I(0, 0), I(1, j), I(1, j + 1)], [-c[0], -c[1], -c[2]]);
+      } else {
+        face([O(i, j), O(i + 1, j), O(i + 1, j + 1), O(i, j + 1)], c);
+        face([I(i, j), I(i + 1, j), I(i + 1, j + 1), I(i, j + 1)], [-c[0], -c[1], -c[2]]);
+      }
+      // Laibungen zu offenen Nachbarn: Meridian-Kanten (links/rechts)
+      if (!S(i, j - 1)) face([O(i, j), O(i + 1, j), I(i + 1, j), I(i, j)], sub(cellC(i, j - 1), c));
+      if (!S(i, j + 1)) face([O(i, j + 1), O(i + 1, j + 1), I(i + 1, j + 1), I(i, j + 1)], sub(cellC(i, j + 1), c));
+      // Breitenkreis-Kanten (oben/unten); unten am Rand (i = NP-1) → Auflagefläche
+      if (i > 0 && !S(i - 1, j)) face([O(i, j), O(i, j + 1), I(i, j + 1), I(i, j)], sub(i - 1 >= 0 ? cellC(i - 1, j) : mid(0, j), c));
+      if (i === NP - 1) face([O(NP, j), O(NP, j + 1), I(NP, j + 1), I(NP, j)], [0, 0, -1]);
+      else if (!S(i + 1, j)) face([O(i + 1, j), O(i + 1, j + 1), I(i + 1, j + 1), I(i + 1, j)], sub(cellC(i + 1, j), c));
+    }
+  return G.geom3.fromPoints(polys);
+}
+
 /** Rotationskörper als geschlossenes Netz (außen moduliert, optional hohl mit Boden). */
 function radialGeom(o: {
   h: number; r0: number; r1: number; bulge: number; sides: number; waves: number; amp: number; twist: number;
@@ -417,6 +497,13 @@ function build(n: CadNode, ctx: Ctx): Geom[] {
           floor: o(n.floor, 1.2, 'radial.floor'),
         }),
       ];
+    }
+    case 'dome': {
+      const R = positive(num(n.r, s, 'dome.r'), 'Kuppel-Radius');
+      const w = positive(num(n.wall, s, 'dome.wall'), 'Wandstärke');
+      if (w >= R * 0.8) throw new BuildError('Wandstärke zu groß für die Kuppel');
+      const o = (x: Parameters<typeof num>[0] | undefined, d: number, what: string) => (x === undefined ? d : num(x, s, what));
+      return [domeGeom(R, w, Math.round(o(n.rows, 0, 'dome.rows')), Math.round(o(n.holes, 0, 'dome.holes')), o(n.hole, 0, 'dome.hole'), o(n.top, 0, 'dome.top'))];
     }
     case 'thread': {
       const d = positive(num(n.d, s, 'thread.d'), 'Gewinde-Durchmesser');
